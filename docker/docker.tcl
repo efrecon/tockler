@@ -17,34 +17,28 @@ namespace eval ::docker {
 	variable version 0.1
 	variable libdir [file dirname [file normalize [info script]]]
     }
-    namespace export connect
+    namespace export connect verbosity logger log
     namespace ensemble create
 }
 
 
 # ::docker::connect -- Connect to docker endpoint
 #
-#       Creates a new database using the name and root directory
-#       passed as (optional) arguments.  This will return a handle
-#       that also is a command which should be used for all further
-#       operations on the database, including insertions.  The command
-#       takes a number of dash-led options with values, these are:
-#	-root	Root directory on disk, this can be shared among several DBs
-#	-name	Name of database, will result in the creation of a directory
-#               with that name under the root directory.
-#	-chunk	Maximum target size of samples chunks on disk
-#	-ext	Extension to use for files containing the data.
+#       Creates a new connection to the docker daemon.  This will
+#       return a handle that also is a command which should be used
+#       for all further operations on the daemon.  The command takes a
+#       number of dash-led options with values, these are:
+#	-nc	Location of nc for UNIX socket encapsulation
 #
 # Arguments:
 #	args	Dash-led options and arguments, see above.
 #
 # Results:
-#       Returns a handle for the database, this is a command used for
-#       tk-style calling conventions.
+#       Returns a handle for the connection, this is a command used
+#       for tk-style calling conventions.
 #
 # Side Effects:
-#       Will create sub-directories as necessary, reorder "dirty"
-#       files, etc.
+#       None.
 proc ::docker::connect { url args } {
     variable DOCKER
 

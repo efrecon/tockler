@@ -1,6 +1,8 @@
 lappend auto_path [file join [file dirname [info script]] docker]
 package require docker
 
+docker verbosity 6
+
 proc dumpme {id type line} {
     puts "$id/$type :: $line"
 }
