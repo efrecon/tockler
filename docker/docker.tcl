@@ -67,15 +67,24 @@ proc ::docker::connect { url args } {
 }
 
 
+proc ::docker::disconnect { cx } {
+    upvar \#0 $cx CX
+
+    if { $CX(sock) ne "" } {
+	catch {close $CX(sock)}
+    }
+    unset $cx
+}
+
 proc ::docker::images { cx args } {
     eval [linsert $args 0 Request $cx GET /images/json]
     array set RSP [Response $cx]
     switch $RSP(code) {
 	200 {
-	    array set META $RSP(meta)
-	    if { [info exists META(Content-Length)] } {
-		return [Data $cx $META(Content-Length)]
-	    }
+	    return [Read $cx $RSP(meta)]
+	}
+	default {
+	    return -code error "$RSP(code): [Read $cx $RSP(meta) 0]"
 	}
     }
 }
@@ -87,10 +96,10 @@ proc ::docker::ping { cx } {
     array set RSP [Response $cx]
     switch $RSP(code) {
 	200 {
-	    array set META $RSP(meta)
-	    if { [info exists META(Content-Length)] } {
-		return [Data $cx $META(Content-Length)]
-	    }
+	    return [Read $cx $RSP(meta) 0]
+	}
+	default {
+	    return -code error "$RSP(code): [Read $cx $RSP(meta) 0]"
 	}
     }
 }
@@ -101,10 +110,10 @@ proc ::docker::containers { cx args } {
     array set RSP [Response $cx]
     switch $RSP(code) {
 	200 {
-	    array set META $RSP(meta)
-	    if { [info exists META(Content-Length)] } {
-		return [::docker::json::parse [Data $cx $META(Content-Length)]]
-	    }
+	    return [Read $cx $RSP(meta)]
+	}
+	default {
+	    return -code error "$RSP(code): [Read $cx $RSP(meta) 0]"
 	}
     }
 }
@@ -114,10 +123,10 @@ proc ::docker::inspect { cx id args } {
     array set RSP [Response $cx]
     switch $RSP(code) {
 	200 {
-	    array set META $RSP(meta)
-	    if { [info exists META(Content-Length)] } {
-		return [::docker::json::parse [Data $cx $META(Content-Length)]]
-	    }
+	    return [Read $cx $RSP(meta)]
+	}
+	default {
+	    return -code error "$RSP(code): [Read $cx $RSP(meta) 0]"
 	}
     }
 }
@@ -489,6 +498,49 @@ proc ::docker::Data { cx len } {
     return $dta
 }
 
+proc ::docker::Chunks { cx } {
+    upvar \#0 $cx CX
+    
+    set dta ""
+    while 1 {
+	set chunk [Chunk $cx]
+	if { [string length $chunk] == 0 } {
+	    break
+	} else {
+	    append dta $chunk
+	}
+    }
+
+    # Skip footer
+    while 1 {
+	set l [gets $CX(sock)]
+	if { $l eq "" } {
+	    break
+	}
+    }
+
+    return $dta
+}
+
+
+proc ::docker::Chunk { cx } {
+    upvar \#0 $cx CX
+    
+    set dta ""
+    if { [gets $CX(sock) hdr] >= 0 } {
+	# Split header to access the hex size
+	foreach sz [split $hdr ";"] break
+	# Convert hex len in decimal
+	scan $sz %x len
+	if { $len > 0 } {
+	    set dta [Data $cx $len]
+	    fconfigure $CX(sock) -translation auto
+	    gets $CX(sock)
+	}
+    }
+    return $dta
+}
+
 
 proc ::docker::Stream { cx cmd } {
     upvar \#0 $cx CX
@@ -504,6 +556,30 @@ proc ::docker::Stream { cx cmd } {
     } else {
 	log WARN "Cannot read from socket"
 	fileevent $CX(sock) readable {}
+	if { [catch {eval [linsert $cmd end error \
+			       "Cannot read from socket"]} err] } {
+	    log WARN "Cannot mediate error: $err"
+	}
+    }
+}
+
+proc ::docker::Read { cx meta { json 1 } } {
+    set dta ""
+    array set META $meta
+
+    if { [info exists META(Content-Length)] } {
+	set dta [string trim [Data $cx $META(Content-Length)]]
+    }
+
+    if { [info exists META(Transfer-Encoding)] \
+	     && $META(Transfer-Encoding) eq "chunked" } {
+	set dta [string trim [Chunks $cx]]
+    }
+
+    if { $dta ne "" && $json } {
+	return [::docker::json::parse $dta]
+    } else {
+	return ""
     }
 }
 
@@ -512,11 +588,10 @@ proc ::docker::Get { cx id op args } {
     array set RSP [Response $cx]
     switch $RSP(code) {
 	200 {
-	    array set META $RSP(meta)
-	    if { [info exists META(Content-Length)] } {
-		set dta [string trim [Data $cx $META(Content-Length)]]
-		return [::docker::json::parse $dta]
-	    }
+	    return [Read $cx $RSP(meta)]
+	}
+	default {
+	    return -code error "$RSP(code): [Read $cx $RSP(meta) 0]"
 	}
     }
     return ""
@@ -527,15 +602,10 @@ proc ::docker::Do { cx id op args } {
     array set RSP [Response $cx]
     switch $RSP(code) {
 	200 {
-	    array set META $RSP(meta)
-	    if { [info exists META(Content-Length)] } {
-		set dta [string trim [Data $cx $META(Content-Length)]]
-		if { $dta ne "" } {
-		    return [::docker::json::parse $dta]
-		} else {
-		    return ""
-		}
-	    }
+	    return [Read $cx $RSP(meta)]
+	}
+	default {
+	    return -code error "$RSP(code): [Read $cx $RSP(meta) 0]"
 	}
     }
     return ""
