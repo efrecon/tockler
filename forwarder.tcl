@@ -115,8 +115,10 @@ proc ::forward { container url type line } {
 
     if { $type eq "error" } {
 	docker log WARN "Connection to $container lost,\
-                            retrying in $FWD(-retry) ms"
-	after $FWD(-retry) [list ::init $container $url]
+                         retrying in $FWD(-retry) ms"
+	if { $FWD(-retry) >= 0 } {
+	    after $FWD(-retry) [list ::init $container $url]
+	}
 	return
     }
     if { $line ne "" } {
