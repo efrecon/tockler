@@ -9,6 +9,17 @@ images or execution contexts, nor to start components.
 
   [1]: https://docs.docker.com/reference/api/docker_remote_api/
 
+## Forwarding Service
+
+This library comes with a forwarding service `forwarder.tcl` that
+mainly serves as an example code.  The service is able to attach to
+one or several docker components and send what they output to remote
+URLs.  By default, the HTTP operation used is a `POST`, MIME type
+`application/octet-stream`.  The components and their destinations
+URLs is controlled by the option `-mapper` which should contain a
+space-separated list where the name of the components and the
+destination URLs should alternate.
+
 ## Quick Tutorial
 
 The library provides an object-based API: you will get a token for a
