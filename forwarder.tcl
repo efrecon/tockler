@@ -99,7 +99,7 @@ if { [llength $argv] > 0 } {
 
 # Callback once HTTP operation has ended, output some logging details
 # depending on the success of the HTTP operation
-proc ::result { container url line tok } {
+proc ::result { url line tok } {
     global FWD
 
     set ncode [::http::ncode $tok]
@@ -166,7 +166,7 @@ proc ::send { url line {trailer ""} {method ""} {type ""} } {
 			     -type $type \
 			     -query $line \
 			     -keepalive $FWD(-keepalive) \
-			     -command [list ::result $container $url $line]} \
+			     -command [list ::result $url $line]} \
 		      tok] == 0 } {
 		docker log DEBUG "Successfully posting line to $url"
 	    } else {
