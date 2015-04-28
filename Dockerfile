@@ -16,5 +16,11 @@ COPY *.md /opt/htdocker/
 COPY forwarder.tcl /opt/htdocker/
 COPY docker/ /opt/htdocker/docker/
 
+# Export where we will look for the Docker UNIX socket.
 VOLUME ["/tmp/docker.sock"]
-ENTRYPOINT ["tclsh8.6", "/opt/htdocker/forwarder.tcl", "-verbose", "4", "-docker", "unix:///tmp/docker.sock"]
+
+# Export the plugin directory to ease testing new plugins
+VOLUME ["/opt/htdocker/exts"]
+
+ENTRYPOINT ["tclsh8.6", "/opt/htdocker/forwarder.tcl"]
+CMD ["-verbose", "4", "-docker", "unix:///tmp/docker.sock"]
