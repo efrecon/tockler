@@ -231,17 +231,18 @@ proc ::attach { container } {
     global DOCKER
     global FWD
 
+    docker log INFO "Trying to attach to $container to capture output"
     if { [catch {$DOCKER($container) inspect $container} descr] } {
 	if { $FWD(-retry) >= 0 } {
-	    docker log DEBUG "No container, retrying in $FWD(-retry) ms"
+	    docker log DEBUG "No container, retrying in $FWD(-retry) ms: $descr"
 	    after $FWD(-retry) [list ::attach $container]
 	}
     } elseif { [dict exists $descr State Running] \
 		   && [string is true [dict get $descr State Running]] } {
-	docker log NOTICE "Attaching to container $container on $FWD(-output)"
 	$DOCKER($container) attach $container \
 	    [list ::forward $container] \
 	    stream 1 $FWD(-output) 1
+	docker log NOTICE "Attached to container $container on $FWD(-output)"
     } elseif { $FWD(-retry) >= 0 } {
 	docker log DEBUG "No container, retrying in $FWD(-retry) ms"
 	after $FWD(-retry) [list ::attach $container]
