@@ -234,7 +234,7 @@ proc ::attach { container } {
     if { [catch {$DOCKER($container) inspect $container} descr] } {
 	if { $FWD(-retry) >= 0 } {
 	    docker log DEBUG "No container, retrying in $FWD(-retry) ms"
-	    after $FWD(-retry) [list ::attach $container 1]
+	    after $FWD(-retry) [list ::attach $container]
 	}
     } elseif { [dict exists $descr State Running] \
 		   && [string is true [dict get $descr State Running]] } {
@@ -244,7 +244,7 @@ proc ::attach { container } {
 	    stream 1 $FWD(-output) 1
     } elseif { $FWD(-retry) >= 0 } {
 	docker log DEBUG "No container, retrying in $FWD(-retry) ms"
-	after $FWD(-retry) [list ::attach $container 1]
+	after $FWD(-retry) [list ::attach $container]
     }
 }
 
