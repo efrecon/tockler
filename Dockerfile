@@ -1,15 +1,5 @@
-FROM efrecon/tcl
+FROM efrecon/mini-tcl
 MAINTAINER Emmanuel Frecon <emmanuel@sics.se>
-
-
-# Set the env variable DEBIAN_FRONTEND to noninteractive to get
-# apt-get working without error output.
-ENV DEBIAN_FRONTEND noninteractive
-
-# Update underlying ubuntu image and all necessary packages, including
-# docker itself so it is possible to run containers for sources or
-# destinations.
-RUN apt-get update
 
 # COPY code
 COPY *.md /opt/htdocker/
@@ -22,5 +12,5 @@ VOLUME ["/tmp/docker.sock"]
 # Export the plugin directory to ease testing new plugins
 VOLUME ["/opt/htdocker/exts"]
 
-ENTRYPOINT ["tclsh8.6", "/opt/htdocker/forwarder.tcl"]
-CMD ["-verbose", "4", "-docker", "unix:///tmp/docker.sock"]
+ENTRYPOINT ["tclsh8.6", "/opt/htdocker/forwarder.tcl", "-docker", "unix:///tmp/docker.sock"]
+CMD ["-verbose", "4"]

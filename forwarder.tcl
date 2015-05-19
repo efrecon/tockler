@@ -168,7 +168,7 @@ proc ::send { url line {trailer ""} {method ""} {type ""} } {
 			     -keepalive $FWD(-keepalive) \
 			     -command [list ::result $url $line]} \
 		      tok] == 0 } {
-		docker log DEBUG "Successfully posting line to $url"
+		docker log DEBUG "Successfully scheduled $method to $url"
 	    } else {
 		docker log WARN "Cannot post to $url: $tok"
 	    }
