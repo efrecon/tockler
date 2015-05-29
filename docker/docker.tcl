@@ -12,6 +12,7 @@ namespace eval ::docker {
 	    verboseTags    {1 CRITICAL 2 ERROR 3 WARN 4 NOTICE 5 INFO 6 DEBUG}
 	    verbose        3
 	    logd           stderr
+	    -socat         "socat"
 	    -nc            "nc"
 	}
 	variable version 0.1
@@ -428,8 +429,48 @@ proc ::docker::Init { cx } {
     set scheme [string range $CX(url) 0 [expr {$sep-1}]]
     switch -nocase -- $scheme {
 	"unix" {
+	    # Extract path to domain socket
 	    set domain [string range $CX(url) [expr {$sep+3}] end]
-	    set CX(sock) [open "|[auto_execok $CX(-nc)] -U $domain" r+]
+	    
+	    # First try opening using socat, this will fail gently if
+	    # we could not find socat or socat actually failed.
+	    if { $CX(-socat) ne "" } {
+		set socat [auto_execok $CX(-socat)]
+		if { $socat ne "" } {
+		    if {[catch {open "|$socat UNIX-CLIENT:$domain -" r+} s]} {
+			log WARN "Cannot open UNIX socket from $domain\
+                                  with $socat: $s"
+		    } else {
+			log INFO "Opened UNIX sockate at $domain using $socat"
+			set CX(sock) $s
+		    }
+		} else {
+		    log NOTICE "Cannot find binary for socat"
+		}
+	    }
+
+	    # Now try nc
+	    if { $CX(sock) eq "" && $CX(-nc) ne "" } {
+		set nc [auto_execok $CX(-socat)]
+		if { $nc ne "" } {
+		    if {[catch {open "|$nc -U $domain" r+} s]} {
+			log WARN "Cannot open UNIX socket from $domain\
+                                  with $nc: $s"
+		    } else {
+			log INFO "Opened UNIX sockate at $domain using $nc"
+			set CX(sock) $s
+		    }
+		} else {
+		    log NOTICE "Cannot find binary for nc"
+		}
+	    }
+
+	    # If we still haven't got a socket, then send back an
+	    # error as we won't be able to continue...
+	    if { $CX(sock) eq "" } {
+		return -code error \
+		    "Cannot open UNIX socket at $domain using external binaries"
+	    }
 	}
 	"tcp" {
 	    set location [string range $CX(url) [expr {$sep+3}] end]
