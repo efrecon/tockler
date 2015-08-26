@@ -441,7 +441,7 @@ proc ::docker::Init { cx } {
 			log WARN "Cannot open UNIX socket from $domain\
                                   with $socat: $s"
 		    } else {
-			log INFO "Opened UNIX sockate at $domain using $socat"
+			log INFO "Opened UNIX socket at $domain using $socat"
 			set CX(sock) $s
 		    }
 		} else {
@@ -457,7 +457,7 @@ proc ::docker::Init { cx } {
 			log WARN "Cannot open UNIX socket from $domain\
                                   with $nc: $s"
 		    } else {
-			log INFO "Opened UNIX sockate at $domain using $nc"
+			log INFO "Opened UNIX socket at $domain using $nc"
 			set CX(sock) $s
 		    }
 		} else {
