@@ -80,8 +80,8 @@ proc ::docker::disconnect { cx } {
 proc ::docker::images { cx args } {
     eval [linsert $args 0 Request $cx GET /images/json]
     array set RSP [Response $cx]
-    switch $RSP(code) {
-	200 {
+    switch -glob -- $RSP(code) {
+	2* {
 	    return [Read $cx $RSP(meta)]
 	}
 	default {
@@ -95,8 +95,8 @@ proc ::docker::images { cx args } {
 proc ::docker::ping { cx } {
     Request $cx GET _ping
     array set RSP [Response $cx]
-    switch $RSP(code) {
-	200 {
+    switch -glob -- $RSP(code) {
+	2* {
 	    return [Read $cx $RSP(meta) 0]
 	}
 	default {
@@ -109,8 +109,8 @@ proc ::docker::ping { cx } {
 proc ::docker::containers { cx args } {
     eval [linsert $args 0 Request $cx GET /containers/json]
     array set RSP [Response $cx]
-    switch $RSP(code) {
-	200 {
+    switch -glob -- $RSP(code) {
+	2* {
 	    return [Read $cx $RSP(meta)]
 	}
 	default {
@@ -122,8 +122,8 @@ proc ::docker::containers { cx args } {
 proc ::docker::inspect { cx id args } {
     eval [linsert $args 0 Request $cx GET /containers/$id/json]
     array set RSP [Response $cx]
-    switch $RSP(code) {
-	200 {
+    switch -glob -- $RSP(code) {
+	2* {
 	    return [Read $cx $RSP(meta)]
 	}
 	default {
@@ -197,9 +197,9 @@ proc ::docker::attach { cx id cmd args } {
 
     eval [linsert $args 0 Request $cx POST /containers/$id/attach]
     array set RSP [Response $cx]
-    switch $RSP(code) {
+    switch -glob -- $RSP(code) {
 	101 -
-	200 {
+	2* {
 	    array set META $RSP(meta)
 	    if { [info exists META(Content-Type)] \
 		     && $META(Content-Type) eq "application/vnd.docker.raw-stream" } {
@@ -627,8 +627,8 @@ proc ::docker::Read { cx meta { json 1 } } {
 proc ::docker::Get { cx id op args } {
     eval [linsert $args 0 Request $cx GET /containers/$id/$op]
     array set RSP [Response $cx]
-    switch $RSP(code) {
-	200 {
+    switch -glob -- $RSP(code) {
+	2* {
 	    return [Read $cx $RSP(meta)]
 	}
 	default {
@@ -641,8 +641,8 @@ proc ::docker::Get { cx id op args } {
 proc ::docker::Do { cx id op args } {
     eval [linsert $args 0 Request $cx POST /containers/$id/$op]
     array set RSP [Response $cx]
-    switch $RSP(code) {
-	200 {
+    switch -glob -- $RSP(code) {
+	2* {
 	    return [Read $cx $RSP(meta)]
 	}
 	default {
