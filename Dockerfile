@@ -1,6 +1,11 @@
 FROM efrecon/mini-tcl
 MAINTAINER Emmanuel Frecon <emmanuel@sics.se>
 
+# Ensure we have socat since nc on busybox does not support UNIX
+# domain sockets.
+RUN apk add --update-cache socat && \
+    rm -rf /var/cache/apk/*
+
 # COPY code
 COPY *.md /opt/htdocker/
 COPY forwarder.tcl /opt/htdocker/
