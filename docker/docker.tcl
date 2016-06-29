@@ -15,7 +15,7 @@ namespace eval ::docker {
 	    -socat         "socat"
 	    -nc            "nc"
 	}
-	variable version 0.1
+	variable version 0.2
 	variable libdir [file dirname [file normalize [info script]]]
     }
     namespace export connect verbosity logger log
@@ -196,19 +196,66 @@ proc ::docker::attach { cx id cmd args } {
     upvar \#0 $cx CX
 
     eval [linsert $args 0 Request $cx POST /containers/$id/attach]
+    Follow $cx $cmd
+}
+
+
+proc ::docker::exec { cx id cmd args } {
+    upvar \#0 $cx CX
+
+    set in [expr {[GetOpt args -stdin]?"true":"false"}]
+    set out [expr {[GetOpt args -stdout]?"true":"false"}]
+    set err [expr {[GetOpt args -stderr]?"true":"false"}]
+    set tty [expr {[GetOpt args -tty]?"true":"false"}]
+    set json "\{ "
+    append json "\"AttachStdin\": $in, "
+    append json "\"AttachStdout\": $out, "
+    append json "\"AttachStderr\": $err, "
+    append json "\"Tty\": $tty, "
+    foreach c $cmd {
+	append jcmd "\"$c\", "
+    }
+    set jcmd [string trimright $jcmd " ,"]
+    append json "\"Cmd\": \[ $jcmd \] "
+    append json "\}"
+    RequestJSON $cx POST /containers/$id/exec $json
+    
     array set RSP [Response $cx]
     switch -glob -- $RSP(code) {
-	101 -
 	2* {
-	    array set META $RSP(meta)
-	    if { [info exists META(Content-Type)] \
-		     && $META(Content-Type) eq "application/vnd.docker.raw-stream" } {
-		fconfigure $CX(sock) -encoding binary -translation binary
-		fileevent $CX(sock) readable [list [namespace current]::Stream $cx $cmd]
+	    array set RES [Read $cx $RSP(meta)]
+	    GetOpt args -callback -value cb -default ""
+	    unset RSP
+	    
+	    set json "\{ \"Detach\": false \}"
+	    RequestJSON $cx POST /exec/$RES(Id)/start $json
+	    if { $cb eq "" } {
+		set r [Identifier [namespace current]::result:]
+		upvar \#0 $r RS
+		set RS(stdout) ""
+		set RS(stderr) ""
+		set RS(done) 0
+		Follow $cx [list [namespace current]::Collect $r]
+		vwait ${r}(done)
+		
+		if { $RS(stderr) ne "" } {
+		    set res $RS(stderr)
+		} else {
+		    set res $RS(stdout)
+		}
+		unset $r
+		return $res
+	    } else {
+		Follow $cx $cb
 	    }
 	}
+	default {
+	    return -code error "$RSP(code): [Read $cx $RSP(meta) 0]"
+	}
     }
+    return ""
 }
+
 
 # ::docker::logger -- Set logger command
 #
@@ -336,6 +383,76 @@ proc ::docker::log { lvl msg { module "" } } {
 # be changed unless you wish to help...
 #
 ####################################################################
+
+
+# ::docker::GetOpt -- Quick options parser
+#
+#       Parses options (and their possible) values from an option list. The
+#       parser provides full introspection. The parser accepts itself a number
+#       of dash-led options, which are:
+#	-value   Which variable to store the value given to the option in.
+#	-option  Which variable to store which option (complete) was parsed.
+#	-default Default value to give when option not present.
+#
+# Arguments:
+#	_argv	Name of option list in caller's context
+#	name	Name of option to extract (first match, can be incomplete)
+#	args	Additional arguments
+#
+# Results:
+#       Returns 1 when a matching option was found and parsed away from the
+#       option list, 0 otherwise
+#
+# Side Effects:
+#       Modifies the option list to enable being run in loops.
+proc ::docker::GetOpt {_argv name args } {
+    # Get options to the option parsing procedure...
+    array set OPTS {
+	-value  ""
+	-option ""
+    }
+    if { [string index [lindex $args 0] 0] ne "-" } {
+	# Backward compatibility with old code! arguments that follow the name
+	# of the option to parse are possibly the name of the variable where to
+	# store the value and possibly a default value when the option isn't
+	# found.
+	set OPTS(-value) [lindex $args 0]
+	if { [llength $args] > 1 } {
+	    set OPTS(-default) [lindex $args 1]
+	}
+    } else {
+	array set OPTS $args
+    }
+    
+    # Access where the options are stored and possible where to store
+    # side-results.
+    upvar $_argv argv
+    if { $OPTS(-value) ne "" } {
+	upvar $OPTS(-value) var
+    }
+    if { $OPTS(-option) ne "" } {
+	upvar $OPTS(-option) opt
+    }
+    set opt "";  # Default is no option was extracted
+    set pos [lsearch -regexp $argv ^$name]
+    if {$pos>=0} {
+	set to $pos
+	set opt [lindex $argv $pos];  # Store the option we extracted
+	# Pick the value to the option, if relevant
+	if {$OPTS(-value) ne ""} {
+	    set var [lindex $argv [incr to]]
+	}
+	# Remove option (and possibly its value from list)
+	set argv [lreplace $argv $pos $to]
+	return 1
+    } else {
+	# Did we provide a value to default?
+	if { [info exists OPTS(-default)] } {
+	    set var $OPTS(-default)
+	}
+	return 0
+    }
+}
 
 
 # ::docker::LogLevel -- Convert log levels
@@ -505,6 +622,20 @@ proc ::docker::Request { cx op path args } {
 }
 
 
+proc ::docker::RequestJSON { cx op path json } {
+    upvar \#0 $cx CX
+
+    fconfigure $CX(sock) -buffering full
+    log DEBUG "Requesting $op /[string trimleft $path /] with JSON $json"
+    puts $CX(sock) "$op /[string trimleft $path /] HTTP/1.1"
+    puts $CX(sock) "Content-Type: application/json"
+    puts $CX(sock) "Content-Length: [string length $json]"
+    puts $CX(sock) ""
+    puts -nonewline $CX(sock) $json
+    flush $CX(sock)
+}
+
+
 proc ::docker::Response { cx } {
     upvar \#0 $cx CX
     
@@ -583,6 +714,20 @@ proc ::docker::Chunk { cx } {
 }
 
 
+proc ::docker::Collect { r type payload } {
+    upvar \#0 $r RS
+    
+    if { $type eq "error" } {
+	set RS(done) 1
+	return
+    }
+    
+    if { [info exists RS($type)] } {
+	append RS($type) [string trimright $payload]\n
+    }
+}
+
+
 proc ::docker::Stream { cx cmd } {
     upvar \#0 $cx CX
 
@@ -595,13 +740,30 @@ proc ::docker::Stream { cx cmd } {
 	    log WARN "Cannot push back payload: $err"
 	}
     } else {
-	log WARN "Cannot read from socket"
+	log WARN "Cannot read from socket!"
 	fileevent $CX(sock) readable {}
 	if { [catch {eval [linsert $cmd end error \
 			       "Cannot read from socket"]} err] } {
 	    log WARN "Cannot mediate error: $err"
 	}
     }
+}
+
+proc ::docker::Follow { cx cmd } {
+    upvar \#0 $cx CX
+
+    array set RSP [Response $cx]
+    switch -glob -- $RSP(code) {
+	101 -
+	2* {
+	    array set META $RSP(meta)
+	    if { [info exists META(Content-Type)] \
+		     && $META(Content-Type) eq "application/vnd.docker.raw-stream" } {
+		fconfigure $CX(sock) -encoding binary -translation binary
+		fileevent $CX(sock) readable [list [namespace current]::Stream $cx $cmd]
+	    }
+	}
+    }    
 }
 
 proc ::docker::Read { cx meta { json 1 } } {
@@ -620,7 +782,7 @@ proc ::docker::Read { cx meta { json 1 } } {
     if { $dta ne "" && $json } {
 	return [::docker::json::parse $dta]
     } else {
-	return ""
+	return $dta
     }
 }
 
