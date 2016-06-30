@@ -203,30 +203,49 @@ proc ::docker::attach { cx id cmd args } {
 proc ::docker::exec { cx id cmd args } {
     upvar \#0 $cx CX
 
-    set in [expr {[GetOpt args -stdin]?"true":"false"}]
-    set out [expr {[GetOpt args -stdout]?"true":"false"}]
-    set err [expr {[GetOpt args -stderr]?"true":"false"}]
-    set tty [expr {[GetOpt args -tty]?"true":"false"}]
+    # Defauts, then capture -xxx and -noxxx options into JSON booleans
+    set in "false"; set out "true"; set err "false"; set tty "true"
+    if { [GetOpt args -stdi] } { set in "true" };    # -stdin
+    if { [GetOpt args -nostdi] } { set in "false" }
+    if { [GetOpt args -stdo] } { set out "true" };   # -stdout
+    if { [GetOpt args -nostdo] } { set out "false" }
+    if { [GetOpt args -stde] } { set err "true" };   # -stderr
+    if { [GetOpt args -nostde] } { set err "false" }
+    if { [GetOpt args -t] } { set tty "true" };      # -tty
+    if { [GetOpt args -not] } { set tty "false" }
+    if { [GetOpt args -i] } { set in "true"; set out "true"; set err "true" }
+	
+    # Construct JSON request
     set json "\{ "
     append json "\"AttachStdin\": $in, "
     append json "\"AttachStdout\": $out, "
     append json "\"AttachStderr\": $err, "
     append json "\"Tty\": $tty, "
+    # Consider the incoming command to be a valid Tcl-list and construct a JSON
+    # array from it.
     foreach c $cmd {
 	append jcmd "\"$c\", "
     }
     set jcmd [string trimright $jcmd " ,"]
     append json "\"Cmd\": \[ $jcmd \] "
     append json "\}"
-    RequestJSON $cx POST /containers/$id/exec $json
     
+    # Now perform JSON request and parse response. This is to CREATE (and not
+    # yet execute) and execution context, according to the API manual.
+    # https://docs.docker.com/engine/reference/api/docker_remote_api_v1.24/#/exec-create
+    RequestJSON $cx POST /containers/$id/exec $json
     array set RSP [Response $cx]
     switch -glob -- $RSP(code) {
 	2* {
+	    # On successfull execution context creation, capture if the caller
+	    # wished to be notified through callbacks. If not, we'll capture
+	    # output and return it.
 	    array set RES [Read $cx $RSP(meta)]
 	    GetOpt args -callback -value cb -default ""
-	    unset RSP
+	    unset RSP;  # Will be reused just below, not entirely cleancode...
 	    
+	    # Now start the execution context and capture output or provide
+	    # callback with output.
 	    set json "\{ \"Detach\": false \}"
 	    RequestJSON $cx POST /exec/$RES(Id)/start $json
 	    if { $cb eq "" } {
