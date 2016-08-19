@@ -608,9 +608,10 @@ proc ::docker::Init { cx } {
 		    "Cannot open UNIX socket at $domain using external binaries"
 	    }
 	}
+	"http" -
 	"tcp" {
 	    set location [string range $CX(url) [expr {$sep+3}] end]
-	    foreach { host port } [split $location ":"] break
+	    foreach { host port } [split [string trimright $location /] ":"] break
 	    if { $port eq "" } {
 		set port 2375
 	    }
@@ -621,6 +622,22 @@ proc ::docker::Init { cx } {
     return $CX(sock)
 }
 
+
+proc ::docker::Host { cx } {
+    upvar \#0 $cx CX
+
+    # Figure out the Host we are talking to, this is important as new docker
+    # daemons are picky about the presence of the header.
+    set sep [string first "://" $CX(url)]
+    set scheme [string range $CX(url) 0 [expr {$sep-1}]]
+    set host ""
+    if { $scheme eq "tcp" || $scheme eq "http" } {
+	set location [string range $CX(url) [expr {$sep+3}] end]
+	foreach { host port } [split [string trimright $location /] ":"] break
+    }    
+
+    return $host    
+}
 
 proc ::docker::Request { cx op path args } {
     upvar \#0 $cx CX
@@ -636,6 +653,7 @@ proc ::docker::Request { cx op path args } {
     }
     log DEBUG "Requesting $op /[string trimleft $path /]$req"
     puts $CX(sock) "$op /[string trimleft $path /]$req HTTP/1.1"
+    puts $CX(sock) "Host: [Host $cx]"
     puts $CX(sock) ""
     flush $CX(sock)
 }
@@ -647,6 +665,7 @@ proc ::docker::RequestJSON { cx op path json } {
     fconfigure $CX(sock) -buffering full
     log DEBUG "Requesting $op /[string trimleft $path /] with JSON $json"
     puts $CX(sock) "$op /[string trimleft $path /] HTTP/1.1"
+    puts $CX(sock) "Host: [Host $cx]"
     puts $CX(sock) "Content-Type: application/json"
     puts $CX(sock) "Content-Length: [string length $json]"
     puts $CX(sock) ""
