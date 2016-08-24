@@ -8,7 +8,10 @@ proc dumpme {id type line} {
 }
 
 # Connect to local docker socket
-set d [docker connect unix:///var/run/docker.sock]
+if { $argc == 0 } {
+    set argv [list unix:///var/run/docker.sock]
+}
+set d [docker connect {*}$argv]
 
 # Enumerate all running containers and dump what they all write on the
 # stdout

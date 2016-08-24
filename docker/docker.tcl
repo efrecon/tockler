@@ -14,6 +14,8 @@ namespace eval ::docker {
 	    logd           stderr
 	    -socat         "socat"
 	    -nc            "nc"
+	    -cert          ""
+	    -key           ""
 	}
 	variable version 0.2
 	variable libdir [file dirname [file normalize [info script]]]
@@ -616,6 +618,17 @@ proc ::docker::Init { cx } {
 		set port 2375
 	    }
 	    set CX(sock) [socket $host $port]
+	}
+	"https" {
+	    if { [catch {package require tls} ver] } {
+		return -code error "Cannot find package TLS: $ver"
+	    }
+	    set location [string range $CX(url) [expr {$sep+3}] end]
+	    foreach { host port } [split [string trimright $location /] ":"] break
+	    if { $port eq "" } {
+		set port 2376
+	    }
+	    set CX(sock) [::tls::socket -certfile $CX(-cert) -keyfile $CX(-key) $host $port]
 	}
     }
 
