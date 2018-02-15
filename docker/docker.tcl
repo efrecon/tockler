@@ -777,13 +777,13 @@ proc ::docker::Chunk { cx } {
     if { [gets $CX(sock) hdr] >= 0 } {
         # Split header to access the hex size
         foreach sz [split $hdr ";"] break
-        # Convert hex len in decimal
-        scan $sz %x len
-        if { $len > 0 } {
+        # Convert hex len in decimal, if found
+        if { [catch {scan $sz %x len}] == 0 && $len > 0 } {
             set dta [Data $cx $len]
             fconfigure $CX(sock) -translation auto
             gets $CX(sock)
         }
+        
     }
     return $dta
 }
