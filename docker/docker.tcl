@@ -143,8 +143,17 @@ proc ::docker::changes { cx id } {
     return [Get $cx $id changes]
 }
 
-proc ::docker::stats { cx id } {
-    return [Get $cx $id stats]
+proc ::docker::stats { cx id { cmd {} } { json 1 } } {
+    if { $cmd ne "" } {
+        Request $cx GET /containers/$id/stats stream 1
+        if { $json } {
+            Follow $cx [list JSONify $cmd]
+        } else {
+            Follow $cx $cmd
+        }
+    } else {
+        return [Get $cx $id stats stream 0]
+    }
 }
 
 proc ::docker::resize { cx id {w 80} {h 24}} {
@@ -721,7 +730,8 @@ proc ::docker::Data { cx len } {
     return $dta
 }
 
-proc ::docker::Chunks { cx } {
+
+proc ::docker::Chunks { cx { cmd {} } } {
     upvar \#0 $cx CX
     
     set dta ""
@@ -730,7 +740,13 @@ proc ::docker::Chunks { cx } {
         if { [string length $chunk] == 0 } {
             break
         } else {
-            append dta $chunk
+            if { [llength $cmd] } {
+                if { [catch {eval [linsert $cmd end $chunk]} err] } {
+                    log WARN "Cannot push back data: $err"
+                }        
+            } else {                
+                append dta $chunk
+            }
         }
     }
     
@@ -808,14 +824,27 @@ proc ::docker::Follow { cx cmd } {
         101 -
         2* {
             array set META $RSP(meta)
-            if { [info exists META(Content-Type)] \
-                        && $META(Content-Type) eq "application/vnd.docker.raw-stream" } {
-                fconfigure $CX(sock) -encoding binary -translation binary
-                fileevent $CX(sock) readable [list [namespace current]::Stream $cx $cmd]
+            if { [info exists META(Content-Type)] } {
+                switch -glob -- $META(Content-Type) {
+                    "application/vnd.docker.raw-stream*" {
+                        fconfigure $CX(sock) -encoding binary -translation binary
+                        fileevent $CX(sock) readable [list [namespace current]::Stream $cx $cmd]
+                    }
+                    "text/plain*" {
+                        fileevent $CX(sock) readable [list [namespace current]::Chunks $cx $cmd]                        
+                    }
+                }
             }
         }
     }
 }
+
+proc ::docker::JSONify { cmd dta } {
+    if { $dta ne "" } {
+        eval [linsert $cmd end [::docker::json::parse [string trim $dta]]]
+    }
+}
+
 
 proc ::docker::Read { cx meta { json 1 } } {
     set dta ""
