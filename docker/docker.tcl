@@ -585,8 +585,8 @@ proc ::docker::Init { cx } {
                 set socat [auto_execok $CX(-socat)]
                 if { $socat ne "" } {
                     if {[catch {open "|$socat UNIX-CLIENT:$domain -" r+} s]} {
-			log WARN "Cannot open UNIX socket from $domain\
-                                with $socat: $s"
+                        log WARN "Cannot open UNIX socket from $domain\
+                                  with $socat: $s"
                     } else {
                         log INFO "Opened UNIX socket at $domain using $socat"
                         set CX(sock) $s
@@ -601,8 +601,8 @@ proc ::docker::Init { cx } {
                 set nc [auto_execok $CX(-socat)]
                 if { $nc ne "" } {
                     if {[catch {open "|$nc -U $domain" r+} s]} {
-			log WARN "Cannot open UNIX socket from $domain\
-                                with $nc: $s"
+                        log WARN "Cannot open UNIX socket from $domain\
+                                  with $nc: $s"
                     } else {
                         log INFO "Opened UNIX socket at $domain using $nc"
                         set CX(sock) $s
@@ -653,7 +653,7 @@ proc ::docker::Host { cx } {
     set sep [string first "://" $CX(url)]
     set scheme [string range $CX(url) 0 [expr {$sep-1}]]
     set host ""
-    if { $scheme eq "tcp" || $scheme eq "http" } {
+    if { $scheme eq "tcp" || [string match "http*" $scheme] } {
         set location [string range $CX(url) [expr {$sep+3}] end]
         foreach { host port } [split [string trimright $location /] ":"] break
     }
@@ -733,32 +733,40 @@ proc ::docker::Data { cx len } {
 
 proc ::docker::Chunks { cx { cmd {} } } {
     upvar \#0 $cx CX
-    
-    set dta ""
-    while 1 {
+
+    if { [llength $cmd] } {
         set chunk [Chunk $cx]
-        if { [string length $chunk] == 0 } {
-            break
-        } else {
-            if { [llength $cmd] } {
-                if { [catch {eval [linsert $cmd end $chunk]} err] } {
-                    log WARN "Cannot push back data: $err"
-                }        
-            } else {                
-                append dta $chunk
+        # Pass empty chunks to signal end of stream
+        if { [catch {eval [linsert $cmd end $chunk]} err] } {
+            log WARN "Cannot push back data: $err"
+        }
+    } else {
+        set dta ""
+        while 1 {
+            set chunk [Chunk $cx]
+            if { [string length $chunk] == 0 } {
+                break
+            } else {
+                if { [llength $cmd] } {
+                    if { [catch {eval [linsert $cmd end $chunk]} err] } {
+                        log WARN "Cannot push back data: $err"
+                    }        
+                } else {                
+                    append dta $chunk
+                }
             }
         }
-    }
-    
-    # Skip footer
-    while 1 {
-        set l [gets $CX(sock)]
-        if { $l eq "" } {
-            break
+        
+        # Skip footer
+        while 1 {
+            set l [gets $CX(sock)]
+            if { $l eq "" } {
+                break
+            }
         }
+        
+        return $dta
     }
-    
-    return $dta
 }
 
 
