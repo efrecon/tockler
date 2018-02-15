@@ -28,6 +28,8 @@ proc collect { id { dta {}} } {
         dict set ::C_$id name ""
         $c stats $id [list collect $id]
     } elseif { [llength $dta] } {
+        # These statistics are inline with the ones shown by docker stats, see:
+        # https://github.com/docker/cli/blob/master/cli/command/container/stats_helpers.go
         if { [dict get $dta memory_stats limit] != 0 } {
             dict set ::C_$id memPercent [expr {double([dict get $dta memory_stats usage])/double([dict get $dta memory_stats limit])*100.0}]
         }
