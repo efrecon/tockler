@@ -8,5 +8,5 @@
 # script is sourced, the variable $dir must contain the
 # full path name of this file's directory.
 
-package ifneeded docker 0.2 [list source [file join $dir docker.tcl]]
+package ifneeded docker 0.3 [list source [file join $dir docker.tcl]]
 package ifneeded docker::json 1.0 [list source [file join $dir json.tcl]]
