@@ -555,6 +555,41 @@ proc ::docker::node { cx cmd args } {
 }
 
 
+proc ::docker::network { cx cmd args } {
+    upvar \#0 $cx CX
+
+    set cmd [string tolower $cmd]
+    switch -- $cmd {
+        "ls" {
+            QueryHeaders args params
+            return [APICall $cx -rest GET -namespace networks -- {*}$params]
+        }
+        "inspect" {
+            QueryHeaders args params
+            return [APICall $cx -rest GET -namespace networks -id [lindex $args 0] \
+                        -- {*}$params]
+        }
+        "rm" -
+        "delete" {
+            QueryHeaders args params
+            return [APICall $cx -rest DELETE -namespace networks -id [lindex $args 0] \
+                        -- {*}$params]
+        }
+        "disconnect" -
+        "connect" {
+            QueryHeaders args params            
+            return [APICall $cx -rest POST -namespace networks -id [lindex $args 0] -op $cmd \
+                        -- {*}$params]
+        }
+        "prune" {
+            QueryHeaders args params
+            return [APICall $cx -rest POST -namespace networks -op prune \
+                        -- {*}$params]
+        }
+    }    
+}
+
+
 proc ::docker::task { cx cmd args } {
     upvar \#0 $cx CX
 
