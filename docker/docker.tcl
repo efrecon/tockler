@@ -1795,18 +1795,23 @@ proc ::docker::RequestJSON { cx op path json hdrs args } {
 }
 
 
-# ::docker::Response -- descr
+# ::docker::Response -- Read start of HTTP response
 #
-#      descr
+#      Read start of HTTP response sent from Docker daemon.  This parses the
+#      code and message, and continues reading possible headers until the marker
+#      of resonse start.
 #
 # Arguments:
-#      cx       descr
+#      cx       Identifier of connection, as returned by connect
 #
 # Results:
-#      None.
+#      Even-long list representing the response as keys and values.  Known keys
+#      are version for the HTTP protocol version, code for the code, msg for the
+#      HTTP message and meta, that will represent the headers as yet another
+#      even-long list of keys and values.
 #
 # Side Effects:
-#      None.
+#      Read resonse line by line.
 proc ::docker::Response { cx } {
     upvar \#0 $cx CX
     
@@ -1832,19 +1837,20 @@ proc ::docker::Response { cx } {
 }
 
 
-# ::docker::Data -- descr
+# ::docker::Data -- Read exact bytes
 #
-#      descr
+#      Read exact number of bytes out of (stream) from connection to remote
+#      Docker daemon, typically while consuming blocks of chunk encoded data.
 #
 # Arguments:
-#      cx       descr
-#      len      descr
+#      cx       Identifier of connection, as returned by connect
+#      len      Number of bytes to read from socket
 #
 # Results:
-#      None.
+#      Content of data buffer read
 #
 # Side Effects:
-#      None.
+#      Read (and block) from socket to server
 proc ::docker::Data { cx len } {
     upvar \#0 $cx CX
     
@@ -1855,19 +1861,22 @@ proc ::docker::Data { cx len } {
 }
 
 
-# ::docker::Chunks -- descr
+# ::docker::Chunks -- Read chunks
 #
-#      descr
+#      Read chunks sent back as part of the response from the Docker daemon.
+#      When a command is provided, it will be called back with the content of
+#      each chunk, including an ending (last) empty chunk.
 #
 # Arguments:
-#      cx       descr
-#      cmd      descr
+#      cx       Identifier of connection, as returned by connect
+#      cmd      Command to callback with content of chunks
 #
 # Results:
-#      None.
+#      When no command is provided, return the concatenated content of all
+#      chunks that were answered back by the daemon.
 #
 # Side Effects:
-#      None.
+#      Read (and block) on chunk consumption
 proc ::docker::Chunks { cx { cmd {} } } {
     upvar \#0 $cx CX
 
@@ -1907,18 +1916,18 @@ proc ::docker::Chunks { cx { cmd {} } } {
 }
 
 
-# ::docker::Chunk -- descr
+# ::docker::Chunk -- Read content of one chunk
 #
-#      descr
+#      Read and return content of a single data chunk.
 #
 # Arguments:
-#      cx       descr
+#      cx       Identifier of connection, as returned by connect
 #
 # Results:
-#      None.
+#      Return content of chunk
 #
 # Side Effects:
-#      None.
+#      Read header and length of chunk out of header.
 proc ::docker::Chunk { cx } {
     upvar \#0 $cx CX
     
@@ -1938,14 +1947,14 @@ proc ::docker::Chunk { cx } {
 }
 
 
-# ::docker::Collect -- descr
+# ::docker::Collect -- Collect streamed content
 #
-#      descr
+#      Collect and append data content
 #
 # Arguments:
-#      r        descr
-#      type     descr
-#      payload  descr
+#      r        Collection object
+#      type     Type of payload
+#      payload  Data to colled
 #
 # Results:
 #      None.
@@ -1966,19 +1975,22 @@ proc ::docker::Collect { r type payload } {
 }
 
 
-# ::docker::Stream -- descr
+# ::docker::Stream -- Read Docker streams
 #
-#      descr
+#      This reads streams used when attaching (for example) to the output of a
+#      container. The procedure implements the documented format for these
+#      streams and triggers a callback with the type and payload of each (line)
+#      of content being read.
 #
 # Arguments:
-#      cx       descr
-#      cmd      descr
+#      cx       Identifier of connection, as returned by connect
+#      cmd      Command to callback, type and payload will be appended
 #
 # Results:
 #      None.
 #
 # Side Effects:
-#      None.
+#      Read one message from the channel.
 proc ::docker::Stream { cx cmd } {
     upvar \#0 $cx CX
     
@@ -2000,13 +2012,17 @@ proc ::docker::Stream { cx cmd } {
     }
 }
 
-# ::docker::Follow -- descr
+
+# ::docker::Follow -- Read response and Follow (stream) content
 #
-#      descr
+#      Arrange to read a response from the Docker daemon and follow the stream
+#      of response by providing a callback for every message or chunk received.
+#      This implementation is aware of the various type of content declared as
+#      part of the header of the answer.
 #
 # Arguments:
-#      cx       descr
-#      cmd      descr
+#      cx       Identifier of connection, as returned by connect
+#      cmd      Command to callback
 #
 # Results:
 #      None.
@@ -2028,7 +2044,7 @@ proc ::docker::Follow { cx cmd } {
                         fileevent $CX(sock) readable [list [namespace current]::Stream $cx $cmd]
                     }
                     "text/plain*" {
-                        fileevent $CX(sock) readable [list [namespace current]::Chunks $cx $cmd]                        
+                        fileevent $CX(sock) readable [list [namespace current]::Chunks $cx $cmd]
                     }
                 }
             }
@@ -2036,13 +2052,17 @@ proc ::docker::Follow { cx cmd } {
     }
 }
 
-# ::docker::JSONify -- descr
+
+# ::docker::JSONify -- JSON parsed callback
 #
-#      descr
+#      Assumes incoming data is in JSON format, parse the JSON into
+#      Tcl-compatible dictionary (equivalent) representations and perform
+#      command callback.  This procedure is perhaps wrongly named as its main
+#      goal is to parse JSON content.
 #
 # Arguments:
-#      cmd      descr
-#      dta      descr
+#      cmd      Command to callback.
+#      dta      Raw JSON content
 #
 # Results:
 #      None.
@@ -2056,17 +2076,20 @@ proc ::docker::JSONify { cmd dta } {
 }
 
 
-# ::docker::Read -- descr
+# ::docker::Read -- Read remaining data from response
 #
-#      descr
+#      Read remaining data from reponse based on the headers.  This will
+#      recognise chunk encoded answers and arrange to read and concatenate them
+#      in one go.
 #
 # Arguments:
-#      cx       descr
-#      meta     descr
-#      json     descr
+#      cx       Identifier of connection, as returned by connect
+#      meta     Meta information read from beginning of response.
+#      json     Should we convert JSON?
 #
 # Results:
-#      None.
+#      Answer from server, perhaps converted to Tcl dictionaries for easy
+#      analysis at the caller.
 #
 # Side Effects:
 #      None.
@@ -2091,16 +2114,33 @@ proc ::docker::Read { cx meta { json 1 } } {
 }
 
 
-# ::docker::APICall -- descr
+# ::docker::APICall -- Perform API call
 #
-#      descr
+
+#      Perform a (newer) API call to Docker daemon using REST.  This takes a
+#      number of options that should be separated from further arguments using a
+#      double-dash.  Options are led by dashes, so the double-dash can be
+#      omitted (first non-dash means start of arguments).  Supported options are
+#      as follows, reading the Docker API documentation is strongly suggested!
+#
+#      -rest      HTTP operation to perform (GET, PUT, DELETE, etc.)
+#      -namespace Leading path without slash, e.g. /containers, /images, etc.
+#      -id        Identifier of object to target, empty for none.
+#      -op        Operation to call (this is typically placed after the id)
+#      -json      JSON content when POST/PUTing
+#      -raw       When present, do not convert JSON from answer in response.
+#      -headers   Even-long list of keys values to represent additional headers.
+#
+#      Once double-dash (or equivalent) led option extraction has been
+#      performed, all remaining arguments will be passed to the server as query
+#      arguments, meaning that this should also be an even-long list. 
 #
 # Arguments:
-#      cx       descr
-#      args     descr
+#      cx       Identifier of connection, as returned by connect
+#      args     Options and arguments, see above
 #
 # Results:
-#      None.
+#      Return response, possibly parsed from JSON to Tcl-friendly representation
 #
 # Side Effects:
 #      None.
@@ -2148,23 +2188,25 @@ proc ::docker::APICall { cx args } {
 }
 
 
-# ::docker::Get -- descr
+# ::docker::Get -- Do a GET operation
 #
-#      descr
+#      Perform a get API operation on a container 
 #
 # Arguments:
-#      cx       descr
-#      id       descr
-#      op       descr
-#      args     descr
+#      cx       Identifier of connection, as returned by connect
+#      id       Identifier of container
+#      op       Operation (start, stop, etc. as of the API)
+#      args     Additional arguments to pass as query parameters
 #
 # Results:
-#      None.
+#      Return JSON result parsed as Tcl dictionary.
 #
 # Side Effects:
 #      None.
 proc ::docker::Get { cx id op args } {
     return [APICall $cx -rest GET -namespace containers -id $id -op $op -- {*}$args]
+
+    # Code below unused, kept for posterity a little while
     eval [linsert $args 0 Request $cx GET /containers/$id/$op]
     array set RSP [Response $cx]
     switch -glob -- $RSP(code) {
@@ -2178,23 +2220,25 @@ proc ::docker::Get { cx id op args } {
     return ""
 }
 
-# ::docker::Do -- descr
+# ::docker::Do -- Do a POST operation
 #
-#      descr
+#      Perform a post API operation on a container 
 #
 # Arguments:
-#      cx       descr
-#      id       descr
-#      op       descr
-#      args     descr
+#      cx       Identifier of connection, as returned by connect
+#      id       Identifier of container
+#      op       Operation (rename, etc. as of the API)
+#      args     Additional arguments to pass as query parameters
 #
 # Results:
-#      None.
+#      Return JSON result parsed as Tcl dictionary.
 #
 # Side Effects:
 #      None.
 proc ::docker::Do { cx id op args } {
     return [APICall $cx -rest POST -namespace containers -id $id -op $op -- {*}$args]
+
+    # Code below unused, kept for posterity a little while
     eval [linsert $args 0 Request $cx POST /containers/$id/$op]
     array set RSP [Response $cx]
     switch -glob -- $RSP(code) {
@@ -2209,20 +2253,24 @@ proc ::docker::Do { cx id op args } {
 }
 
 
-# ::docker::QueryHeaders -- descr
+# ::docker::QueryHeaders -- Separate options and arguments
 #
-#      descr
+#      Given a list of arguments to an API call, this will separate away the
+#      options from the arguments.  Once done, some (probably valid) heuristice
+#      are performed to separate what will become query arguments from headers.
+#      Headers should start with an upper case.  Leading dashes are
+#      automatically removed, in case there was some.
 #
 # Arguments:
-#      args_    descr
-#      qry_     descr
-#      hdrs_    descr
+#      args_    "Pointer" to initial list of arguments.
+#      qry_     "Pointer" to list of query parameters
+#      hdrs_    "Pointer" to headers
 #
 # Results:
 #      None.
 #
 # Side Effects:
-#      None.
+#      Actively modifies the (incoming) list of arguments.
 proc ::docker::QueryHeaders { args_ { qry_ "" } { hdrs_ "" }} {
     # Access variables in caller stack and initialise vars.
     upvar $args_ args
@@ -2255,4 +2303,3 @@ proc ::docker::QueryHeaders { args_ { qry_ "" } { hdrs_ "" }} {
 
 
 package provide docker $::docker::version
-
