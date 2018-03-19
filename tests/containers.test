@@ -1,0 +1,149 @@
+if {"::tcltest" ni [namespace children]} {
+    package require tcltest 2
+    namespace import -force ::tcltest::*
+}
+
+lappend auto_path [file join [file dirname [info script]] .. docker]
+package require docker
+
+test containers-1 {Listing containers} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    foreach container [$c container ls] {
+        if { [dict exists $container Names] } {
+            foreach name [dict get $container Names] {
+                set name [string trimleft $name "/"]
+                if { $name eq $pfx } {
+                    return $name
+                }
+            }
+        }
+    }
+} -result "Imp0ss1bl3__" -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
+
+test containers-2 {Listing containers (old style)} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    foreach container [$c containers] {
+        if { [dict exists $container Names] } {
+            foreach name [dict get $container Names] {
+                set name [string trimleft $name "/"]
+                if { $name eq $pfx } {
+                    return $name
+                }
+            }
+        }
+    }
+} -result "Imp0ss1bl3__" -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
+
+test containers-3 {Finding stopped containers} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+    exec -ignorestderr -- docker kill $pfx
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    foreach container [$c container ls -all 1] {
+        if { [dict exists $container Names] } {
+            foreach name [dict get $container Names] {
+                set name [string trimleft $name "/"]
+                if { $name eq $pfx } {
+                    return $name
+                }
+            }
+        }
+    }
+} -result "Imp0ss1bl3__" -cleanup {
+    exec -ignorestderr -- docker rm -f $pfx
+}
+
+test containers-4 {Listing containers with filter} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    foreach container [$c container ls -filter [docker filter name $pfx]] {
+        if { [dict exists $container Names] } {
+            foreach name [dict get $container Names] {
+                set name [string trimleft $name "/"]
+                if { $name eq $pfx } {
+                    return $name
+                }
+            }
+        }
+    }
+} -result "Imp0ss1bl3__" -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
+
+test containers-5 {Inspect container} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set container [$c container inspect $pfx]
+    return [string trimleft [dict get $container Name] /]
+} -result "Imp0ss1bl3__" -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
+
+test containers-6 {Inspect container (old style)} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set container [$c inspect $pfx]
+    return [string trimleft [dict get $container Name] /]
+} -result "Imp0ss1bl3__" -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
+
+test containers-7 {Processes inside container} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    foreach p [dict get [$c container top $pfx] Processes] {
+        return [lindex $p end]
+    }
+} -match glob -result "*while true ; do sleep 1 ; done*" -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
+
+test containers-8 {Processes inside container (old style)} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    foreach p [dict get [$c container top $pfx] Processes] {
+        return [lindex $p end]
+    }
+} -match glob -result "*while true ; do sleep 1 ; done*" -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
+
+if {0} {
+test containers-9 {Get container logs} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "echo 'tcltest' ; while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    docker verbosity DEBUG
+    puts " AOSIFAOSIDJ"
+    puts [$c container logs -follow false -stdout 1 $pfx]
+    return [lindex [$c container logs $pfx -follow false -stdout 1] 0]
+} -result "tcltest" -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
+}
+
+
+
+cleanupTests
