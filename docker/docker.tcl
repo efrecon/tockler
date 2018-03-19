@@ -862,6 +862,7 @@ proc ::docker::container { cx cmd args } {
             return [APICall $cx -rest GET -namespace containers -id [lindex $args 0] -op json \
                         -- {*}$params]
         }
+        "logs" -
         "top" -
         "changes" {
             QueryHeaders args params
