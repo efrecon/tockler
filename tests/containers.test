@@ -129,21 +129,87 @@ test containers-8 {Processes inside container (old style)} -setup {
     exec -ignorestderr -- docker kill $pfx
 }
 
-if {0} {
 test containers-9 {Get container logs} -setup {
     set pfx "Imp0ss1bl3__"
-    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "echo 'tcltest' ; while true ; do sleep 1 ; done"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "echo 'tcltest' ; echo 'second line' ; while true ; do sleep 1 ; done"
 } -body {
     set c [docker connect unix:///var/run/docker.sock]
-    docker verbosity DEBUG
-    puts " AOSIFAOSIDJ"
-    puts [$c container logs -follow false -stdout 1 $pfx]
-    return [lindex [$c container logs $pfx -follow false -stdout 1] 0]
+    set logs [$c container logs -follow false -stdout 1 $pfx]
+    return [string trim [lindex $logs 0]]
 } -result "tcltest" -cleanup {
     exec -ignorestderr -- docker kill $pfx
 }
+
+test containers-10 {Get container stats (old style)} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set stats [$c stats $pfx]
+    set pids [dict get $stats pids_stats current]
+    return [expr {$pids>0}]
+} -result 1 -cleanup {
+    exec -ignorestderr -- docker kill $pfx
 }
 
+test containers-11 {Get container stats} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set stats [$c container stats -stream 0 $pfx]
+    set pids [dict get $stats pids_stats current]
+    return [expr {$pids>0}]
+} -result 1 -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
 
+test containers-12 {Get container stats stream} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set ::stats ""
+    set stats [$c container stats -stream 1 $pfx [list set ::stats]]
+    vwait ::stats
+    set pids [dict get $stats pids_stats current]
+    return [expr {$pids>0}]
+} -result 1 -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
 
+test containers-13 {Create container}  -setup {
+    set pfx "Imp0ss1bl3__"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    # Create a container and inspect it to find it back.
+    $c container create -name $pfx {"image":"alpine","HostConfig":{"AutoRemove":true},"command":"sh -c \"while true ; do sleep 1 ; done\""}
+    set container [$c container inspect $pfx]
+    return [string trimleft [dict get $container Name] /]
+} -result "Imp0ss1bl3__" -cleanup {
+    exec -ignorestderr -- docker rm -f $pfx
+}
+
+test containers-14 {Stop container} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    $c container stop $pfx
+    set nfo [$c container inspect $pfx]
+    return [dict get $nfo State Status]
+} -result "removing" -cleanup {
+}
+
+test containers-15 {Restart container} -setup {
+    set pfx "Imp0ss1bl3__"
+    exec -ignorestderr -- docker run --rm -d --name=${pfx} alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    $c container restart $pfx
+    set nfo [$c container inspect $pfx]
+    return [dict get $nfo State Status]
+} -match regexp -result "restarting|running" -cleanup {
+    exec -ignorestderr -- docker kill $pfx
+}
 cleanupTests
