@@ -483,7 +483,7 @@ proc ::docker::stats { cx id { cmd {} } { json 1 } } {
     if { $cmd ne "" } {
         Request $cx GET /containers/$id/stats stream 1
         if { $json } {
-            Follow $cx [list JSONify $cmd]
+            Follow $cx [list [namespace current]::JSONify $cmd]
         } else {
             Follow $cx $cmd
         }
@@ -862,7 +862,18 @@ proc ::docker::container { cx cmd args } {
             return [APICall $cx -rest GET -namespace containers -id [lindex $args 0] -op json \
                         -- {*}$params]
         }
-        "logs" -
+        "logs" {
+            QueryHeaders args params
+            set lines [APICall $cx -rest GET -namespace containers -id [lindex $args 0] -op $cmd -raw-stream \
+                        -- {*}$params]
+            # Arrange to clean every line and make sure we return a list of lines.
+            return [split [string trim $lines] "\n"]
+        }
+        "stats" {
+            QueryHeaders args params
+            return [APICall $cx -rest GET -namespace containers -id [lindex $args 0] -op $cmd -stream [lindex $args 1] \
+                        -- {*}$params]
+        }
         "top" -
         "changes" {
             QueryHeaders args params
@@ -1837,6 +1848,25 @@ proc ::docker::Response { cx } {
     return [array get RSP]
 }
 
+proc ::docker::String2Hex {string} {
+    set where 0
+    set res {}
+    while {$where<[string length $string]} {
+        set str [string range $string $where [expr $where+15]]
+        if {![binary scan $str H* t] || $t==""} break
+        regsub -all (....) $t {\1 } t4
+        regsub -all (..) $t {\1 } t2
+        set asc ""
+        foreach i $t2 {
+            scan $i %2x c
+            append asc [expr {$c>=32 && $c<=127? [format %c $c]: "."}]
+        }
+        lappend res [format "%7.7x: %-42s %s" $where $t4  $asc]
+        incr where 16
+    }
+    join $res \n
+}
+
 
 # ::docker::Data -- Read exact bytes
 #
@@ -1852,12 +1882,16 @@ proc ::docker::Response { cx } {
 #
 # Side Effects:
 #      Read (and block) from socket to server
-proc ::docker::Data { cx len } {
+proc ::docker::Data { cx len {stream 0} } {
     upvar \#0 $cx CX
     
     fconfigure $CX(sock) -translation binary
-    set dta [read $CX(sock) $len]
-    log DEBUG "Read [string length $dta] bytes from $CX(sock)"
+    if { $stream } {
+        set dta [Stream $cx]
+    } else {
+        set dta [read $CX(sock) $len]
+    }
+    log DEBUG "Read [string length $dta] bytes from $CX(sock), starting with [string range $dta 0 40]"
     return $dta
 }
 
@@ -1878,11 +1912,11 @@ proc ::docker::Data { cx len } {
 #
 # Side Effects:
 #      Read (and block) on chunk consumption
-proc ::docker::Chunks { cx { cmd {} } } {
+proc ::docker::Chunks { cx { stream 0 } { cmd {} } } {
     upvar \#0 $cx CX
 
     if { [llength $cmd] } {
-        set chunk [Chunk $cx]
+        set chunk [Chunk $cx $stream]
         # Pass empty chunks to signal end of stream
         if { [catch {eval [linsert $cmd end $chunk]} err] } {
             log WARN "Cannot push back data: $err"
@@ -1890,7 +1924,7 @@ proc ::docker::Chunks { cx { cmd {} } } {
     } else {
         set dta ""
         while 1 {
-            set chunk [Chunk $cx]
+            set chunk [Chunk $cx $stream]
             if { [string length $chunk] == 0 } {
                 break
             } else {
@@ -1898,6 +1932,8 @@ proc ::docker::Chunks { cx { cmd {} } } {
                     if { [catch {eval [linsert $cmd end $chunk]} err] } {
                         log WARN "Cannot push back data: $err"
                     }        
+                } elseif {$stream} {
+                    append dta ${chunk}\n
                 } else {                
                     append dta $chunk
                 }
@@ -1929,7 +1965,7 @@ proc ::docker::Chunks { cx { cmd {} } } {
 #
 # Side Effects:
 #      Read header and length of chunk out of header.
-proc ::docker::Chunk { cx } {
+proc ::docker::Chunk { cx {stream 0} } {
     upvar \#0 $cx CX
     
     set dta ""
@@ -1938,7 +1974,7 @@ proc ::docker::Chunk { cx } {
         foreach sz [split $hdr ";"] break
         # Convert hex len in decimal, if found
         if { [catch {scan $sz %x len}] == 0 && $len > 0 } {
-            set dta [Data $cx $len]
+            set dta [Data $cx $len $stream]
             fconfigure $CX(sock) -translation auto
             gets $CX(sock)
         }
@@ -1992,7 +2028,7 @@ proc ::docker::Collect { r type payload } {
 #
 # Side Effects:
 #      Read one message from the channel.
-proc ::docker::Stream { cx cmd } {
+proc ::docker::Stream { cx {cmd {}} } {
     upvar \#0 $cx CX
     
     set hdr [read $CX(sock) 8]
@@ -2000,17 +2036,24 @@ proc ::docker::Stream { cx cmd } {
         binary scan $hdr cucucucuIu type a b c size
         array set T {0 stdin 1 stdout 2 stderr}
         set payload [string trim [read $CX(sock) $size]]
-        if { [catch {eval [linsert $cmd end $T($type) $payload]} err] } {
-            log WARN "Cannot push back payload: $err"
+        if { [llength $cmd] } {
+            if { [catch {eval [linsert $cmd end $T($type) $payload]} err] } {
+                log WARN "Cannot push back payload: $err"
+            }
+        } else {
+            return $payload
         }
     } else {
         log WARN "Cannot read from socket!"
         fileevent $CX(sock) readable {}
-        if { [catch {eval [linsert $cmd end error \
-                    "Cannot read from socket"]} err] } {
-            log WARN "Cannot mediate error: $err"
+        if { [llength $cmd] } {
+            if { [catch {eval [linsert $cmd end error \
+                        "Cannot read from socket"]} err] } {
+                log WARN "Cannot mediate error: $err"
+            }
         }
     }
+    return ""
 }
 
 
@@ -2031,9 +2074,13 @@ proc ::docker::Stream { cx cmd } {
 # Side Effects:
 #      None.
 proc ::docker::Follow { cx cmd } {
+    return [Consume $cx [Response $cx] $cmd]
+}
+
+proc ::docker::Consume { cx response cmd } {
     upvar \#0 $cx CX
-    
-    array set RSP [Response $cx]
+
+    array set RSP $response
     switch -glob -- $RSP(code) {
         101 -
         2* {
@@ -2045,14 +2092,14 @@ proc ::docker::Follow { cx cmd } {
                         fileevent $CX(sock) readable [list [namespace current]::Stream $cx $cmd]
                     }
                     "text/plain*" {
-                        fileevent $CX(sock) readable [list [namespace current]::Chunks $cx $cmd]
+                        fileevent $CX(sock) readable [list [namespace current]::Chunks $cx 0 $cmd]
                     }
                 }
             }
         }
     }
+    
 }
-
 
 # ::docker::JSONify -- JSON parsed callback
 #
@@ -2094,17 +2141,17 @@ proc ::docker::JSONify { cmd dta } {
 #
 # Side Effects:
 #      None.
-proc ::docker::Read { cx meta { json 1 } } {
+proc ::docker::Read { cx meta {stream 0} { json 1 } } {
     set dta ""
     array set META $meta
     
     if { [info exists META(Content-Length)] } {
-        set dta [string trim [Data $cx $META(Content-Length)]]
+        set dta [string trim [Data $cx $META(Content-Length) $stream]]
     }
     
     if { [info exists META(Transfer-Encoding)] \
                 && $META(Transfer-Encoding) eq "chunked" } {
-        set dta [string trim [Chunks $cx]]
+        set dta [string trim [Chunks $cx $stream]]
     }
     
     if { $dta ne "" && $json } {
@@ -2156,6 +2203,7 @@ proc ::docker::APICall { cx args } {
     GetOpt opts -op -default "" -value op
     GetOpt opts -json -default "" -value json
     GetOpt opts -headers -default {} -value headers
+    GetOpt opts -stream -default {} -value cmd
 
     # Construct API path and perform REST call
     set path /[string trimleft $namespace /]
@@ -2172,17 +2220,28 @@ proc ::docker::APICall { cx args } {
     }
 
     # Read response and return
-    array set RSP [Response $cx]
-    switch -glob -- $RSP(code) {
-        2* {
-            if { [GetOpt opts -raw] } {
-                return [Read $cx $RSP(meta) 0]
-            } else {
-                return [Read $cx $RSP(meta)]
-            }
+    set response [Response $cx]
+    if { [llength $cmd] } {
+        if { [GetOpt opts -raw] } {
+            Consume $cx $response $cmd
+        } else {
+            Consume $cx $response [list [namespace current]::JSONify $cmd]
         }
-        default {
-            return -code error "$RSP(code): [Read $cx $RSP(meta) 0]"
+    } else {
+        array set RSP $response
+        switch -glob -- $RSP(code) {
+            2* {
+                if { [GetOpt opts -raw-stream] } {
+                    return [Read $cx $RSP(meta) 1 0]
+                } elseif { [GetOpt opts -raw] } {
+                    return [Read $cx $RSP(meta) 0 0]
+                } else {
+                    return [Read $cx $RSP(meta)]
+                }
+            }
+            default {
+                return -code error "$RSP(code): [Read $cx $RSP(meta) 0]"
+            }
         }
     }
     return ""
