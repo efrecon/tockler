@@ -345,7 +345,7 @@ proc ::docker::ping { cx } {
     array set RSP [Response $cx]
     switch -glob -- $RSP(code) {
         2* {
-            return [Read $cx $RSP(meta) 0]
+            return [Read $cx $RSP(meta) 0 0]
         }
         default {
             return -code error "$RSP(code): [Read $cx $RSP(meta) 0]"
