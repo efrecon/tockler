@@ -854,7 +854,12 @@ proc ::docker::container { cx cmd args } {
         "create" {
             # container create -name /hello -- {<JSON>}
             QueryHeaders args params
-            return [APICall $cx -rest POST -namespace containers -op create -json $args \
+            return [APICall $cx -rest POST -namespace containers -op $cmd -json $args \
+                        -- {*}$params]
+        }
+        "update" {
+            QueryHeaders args params
+            return [APICall $cx -rest POST -namespace containers -op $cmd -id [lindex $args 0] -json [lrange $args 1 end] \
                         -- {*}$params]
         }
         "inspect" {

@@ -1,0 +1,338 @@
+if {"::tcltest" ni [namespace children]} {
+    package require tcltest 2
+    namespace import -force ::tcltest::*
+}
+
+lappend auto_path [file join [file dirname [info script]] .. docker]
+package require docker
+
+proc ::WaitFor { c name { state "running" } {trials 10} {sleep 1000}} {
+    set status ""
+    # Wait for container to be running.
+    for { set i 0 } { $i < $trials } {incr i} {
+        set nfo [$c container inspect $name]
+        set status [dict get $nfo State Status]
+        if { $status eq $state } {
+            return $status
+        }
+        after $sleep
+    }
+    return $status
+}
+
+proc ::Name { {pfx "Imp0ss1bl3__"} {len 10} {chars "abcdefghijklmnopqrstuvwxyz0123456789"} } {
+    for {set i 0} {$i<$len} {incr i} {
+        append pfx [string index $chars [expr {int(rand()*[string length $chars])}]]
+    }
+    return $pfx
+}
+
+
+proc ::Find { c name args } {
+    set containers [eval [linsert $args 0 $c container ls]]
+    foreach container $containers {
+        if { [dict exists $container Names] } {
+            foreach n [dict get $container Names] {
+                set n [string trimleft $n "/"]
+                if { $n eq $name } {
+                    return $name
+                }
+            }
+        }
+    }
+    return ""
+}
+
+
+set ::CONTAINER [Name]
+test container-ls {Listing containers} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    return [Find $c $::CONTAINER]
+} -result $::CONTAINER -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-ls-old {Listing containers (old style)} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    foreach container [$c containers] {
+        if { [dict exists $container Names] } {
+            foreach name [dict get $container Names] {
+                set name [string trimleft $name "/"]
+                if { $name eq $::CONTAINER } {
+                    return $name
+                }
+            }
+        }
+    }
+} -result $::CONTAINER -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-ls-stopped {Finding stopped containers} -setup {
+    exec -ignorestderr -- docker run -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+    exec -ignorestderr -- docker kill $::CONTAINER
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    return [Find $c $::CONTAINER -all 1]
+} -result $::CONTAINER -cleanup {
+    exec -ignorestderr -- docker rm -f $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-ls-filter {Listing containers with filter} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    return [Find $c $::CONTAINER -filter [docker filter name $::CONTAINER]]
+} -result $::CONTAINER -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-inspect {Inspect container} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set container [$c container inspect $::CONTAINER]
+    return [string trimleft [dict get $container Name] /]
+} -result $::CONTAINER -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-inspect-old {Inspect container (old style)} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set container [$c inspect $::CONTAINER]
+    return [string trimleft [dict get $container Name] /]
+} -result $::CONTAINER -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-ps {Processes inside container} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    foreach p [dict get [$c container top $::CONTAINER] Processes] {
+        return [lindex $p end]
+    }
+} -match glob -result "*while true ; do sleep 1 ; done*" -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-ps-old {Processes inside container (old style)} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    foreach p [dict get [$c container top $::CONTAINER] Processes] {
+        return [lindex $p end]
+    }
+} -match glob -result "*while true ; do sleep 1 ; done*" -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-logs {Get container logs} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "echo 'tcltest' ; echo 'second line' ; while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set logs [$c container logs -follow false -stdout 1 $::CONTAINER]
+    return [string trim [lindex $logs 0]]
+} -result "tcltest" -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-logs-old {Get container stats (old style)} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set stats [$c stats $::CONTAINER]
+    set pids [dict get $stats pids_stats current]
+    return [expr {$pids>0}]
+} -result 1 -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-stats {Get container stats} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set stats [$c container stats -stream 0 $::CONTAINER]
+    set pids [dict get $stats pids_stats current]
+    return [expr {$pids>0}]
+} -result 1 -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-stats-stream {Get container stats stream} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    set ::stats ""
+    after 5000 set ::stats {pids_stats {current 0}};   # Failsafe to avoid locking
+    set stats [$c container stats -stream 1 $::CONTAINER [list set ::stats]]
+    vwait ::stats
+    set pids [dict get $stats pids_stats current]
+    return [expr {$pids>0}]
+} -result 1 -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-create {Create container}  -setup {
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    # Create a container and inspect it to find it back.
+    $c container create -name $::CONTAINER {"image":"alpine","HostConfig":{"AutoRemove":true},"command":"sh -c \"while true ; do sleep 1 ; done\""}
+    set container [$c container inspect $::CONTAINER]
+    return [string trimleft [dict get $container Name] /]
+} -result $::CONTAINER -cleanup {
+    exec -ignorestderr -- docker rm -f $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-stop {Stop container} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    if { [WaitFor $c $::CONTAINER] eq "running" } {
+        $c container stop $::CONTAINER
+        set nfo [$c container inspect $::CONTAINER]
+        return [dict get $nfo State Status]
+    }
+    return ""
+} -result "removing" -cleanup {
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-restart {Restart container} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    if { [WaitFor $c $::CONTAINER] eq "running" } {
+        $c container restart $::CONTAINER
+        set nfo [$c container inspect $::CONTAINER]
+        return [dict get $nfo State Status]
+    }
+    return ""
+} -result "running" -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-kill {Kill container} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    if { [WaitFor $c $::CONTAINER] eq "running" } {
+        $c container kill $::CONTAINER
+        return [Find $c $::CONTAINER]        
+    }
+    return $::CONTAINER;  # Failsafe, we don't want to arrive here
+} -result "" -cleanup {
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-update {Update container} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    $c container update $::CONTAINER {"CpuQuota":50000}
+    set container [$c container inspect $::CONTAINER]
+    return [dict get $container HostConfig CpuQuota]
+} -result 50000 -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+set ::CONTAINER2 [Name]
+test container-rename {Rename container} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    $c container rename -name $::CONTAINER2 $::CONTAINER
+    return [Find $c $::CONTAINER];  # We shouldn't find the old name
+} -result "" -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER2
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-pause {Pause container} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    $c container pause $::CONTAINER
+    return [WaitFor $c $::CONTAINER "paused"]
+} -result "paused" -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-unpause {Unpause container} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    $c container pause $::CONTAINER
+    $c container unpause $::CONTAINER
+    return [WaitFor $c $::CONTAINER "running"]
+} -result "running" -cleanup {
+    exec -ignorestderr -- docker kill $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-stop {Stop container} -setup {
+    exec -ignorestderr -- docker run -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    $c container stop $::CONTAINER
+    return [WaitFor $c $::CONTAINER "exited"]
+} -result "exited" -cleanup {
+    exec -ignorestderr -- docker rm -f $::CONTAINER
+    $c disconnect
+}
+
+set ::CONTAINER [Name]
+test container-rm {Remove container} -setup {
+    exec -ignorestderr -- docker run --rm -d --name=$::CONTAINER alpine sh -c "while true ; do sleep 1 ; done"
+} -body {
+    set c [docker connect unix:///var/run/docker.sock]
+    $c container rm -force 1 $::CONTAINER
+    return [Find $c $::CONTAINER]
+} -result "" -cleanup {
+    $c disconnect
+}
+
+
+cleanupTests

@@ -1,4 +1,6 @@
 #! /usr/bin/env tclsh
+#
+#  You probably want to run with -verbose t to see what is happening...
 
 package prefer latest
 package require Tcl
