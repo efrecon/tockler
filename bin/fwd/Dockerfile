@@ -1,3 +1,5 @@
+# Build this from the main directory of the repository!
+
 FROM efrecon/mini-tcl:3.7
 MAINTAINER Emmanuel Frecon <emmanuel@sics.se>
 
@@ -7,8 +9,8 @@ RUN apk add --no-cache socat
 
 # COPY code, this recreates a more logical hierarchy with API implementation
 # code under the docker directory.
-COPY *.md /opt/htdocker/
-COPY forwarder.tcl /opt/htdocker/
+COPY bin/fwd/*.md /opt/htdocker/
+COPY bin/fwd/forwarder.tcl /opt/htdocker/
 COPY *.tcl /opt/htdocker/docker/
 
 # Export where we will look for the Docker UNIX socket.
