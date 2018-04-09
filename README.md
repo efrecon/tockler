@@ -2,18 +2,17 @@
 
 ## Introduction
 
-Implementation of the docker [client API][1] in Tcl. At present, this covers a
+Implementation of the docker [client API][API] in Tcl. At present, this covers a
 large subset of the API, with a specific focus on management commands, i.e.
 commands to manage images, containers, networks, swarm, nodes, etc.  This API
 implementation is loosly modelled after the command-line, even though it
-automatically relays API parameters as arguments to the calls. A forwarding
-service is available as an example of slightly complex client code: the
-forwarder is able to capture the output of running containers and send this
-output, linewise, to remote URLs, possibly via plugin transformations. This
-forwarding service is available as a [container][2].
+automatically relays API parameters as arguments to the calls. Slightly complex
+examples using this implementation are [htdocker], [dockron] or [withstander]
 
-  [1]: https://docs.docker.com/reference/api/docker_remote_api/
-  [2]: https://hub.docker.com/r/efrecon/htdocker/
+  [API]: https://docs.docker.com/reference/api/docker_remote_api/
+  [htdocker]: https://github.com/efrecon/htdocker
+  [dockron]: https://github.com/efrecon/dockron
+  [withstander]: https://github.com/efrecon/withstander
 
 ## Quick Tutorial
 
