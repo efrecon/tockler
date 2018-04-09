@@ -29,7 +29,7 @@ set prg_args {
 
 set dirname [file dirname [file normalize [info script]]]
 set appname [file rootname [file tail [info script]]]
-lappend auto_path [file join $dirname docker]
+lappend auto_path [file join $dirname docker] [file join $dirname .. ..]
 
 package require Tcl 8.6;  # base64 encoding!
 package require docker

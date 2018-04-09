@@ -1,4 +1,4 @@
-lappend auto_path [file join [file dirname [info script]] docker]
+lappend auto_path [file join [file dirname [info script]] docker] [file join [file dirname [info script]] .. ..]
 package require docker
 
 docker verbosity 6
