@@ -9,7 +9,7 @@ namespace eval ::docker {
             idFormat       7
             logger         ""
             dateLogHeader  "\[%Y%m%d %H%M%S\] \[%module%\] \[%level%\] "
-            verboseTags    {1 CRITICAL 2 ERROR 3 WARN 4 NOTICE 5 INFO 6 DEBUG}
+            verboseTags    {1 CRITICAL 2 ERROR 3 WARN 4 NOTICE 5 INFO 6 DEBUG 7 TRACE}
             verbose        3
             logd           stderr
             -socat         "socat"
@@ -54,7 +54,7 @@ namespace eval ::docker {
 #       None.
 proc ::docker::connect { url args } {
     variable DOCKER
-    
+
     # Create an identifier, arrange for it to be a command.
     set cx [Identifier [namespace current]::docker:]
     interp alias {} $cx {} ::docker::Dispatch $cx
@@ -72,10 +72,10 @@ proc ::docker::connect { url args } {
             return -code error "$k is an unknown option"
         }
     }
-    
+
     # Initialise the connection
     Init $cx
-    
+
     return $cx
 }
 
@@ -121,7 +121,7 @@ proc ::docker::logger { { cmd "" } } {
 #       command is specified.
 proc ::docker::verbosity { {lvl -1} } {
     variable DOCKER
-    
+
     if { $lvl >= 0 && $lvl ne "" } {
         set lvl [LogLevel $lvl]
         if { $lvl < 0 } {
@@ -154,10 +154,10 @@ proc ::docker::verbosity { {lvl -1} } {
 proc ::docker::log { lvl msg { module "" } } {
     variable DOCKER
     global argv0
-    
+
     # Convert to integer
     set lvl [LogLevel $lvl]
-    
+
     # If we should output, either pass to the global logger command or
     # output a message onto stderr.
     if { [LogLevel $DOCKER(verbose)] >= $lvl } {
@@ -167,7 +167,7 @@ proc ::docker::log { lvl msg { module "" } } {
                 # toplevel of the calling stack.
                 set module [file rootname [file tail $argv0]]
             } else {
-                set proc [lindex $caller 0]
+                set proc [namespace which [lindex $caller 0]]
                 set proc [string map [list "::" "/"] $proc]
                 set module [lindex [split $proc "/"] end-1]
                 if { $module eq "" } {
@@ -222,7 +222,7 @@ proc ::docker::filters { args } {
         dict lappend filters $k $v
     }
 
-    set json "{"
+    set json "\{"
     dict for {k l} $filters {
         append json "\"$k\": "
         append json "\["
@@ -233,7 +233,7 @@ proc ::docker::filters { args } {
         append json "\],"
     }
     set json [string trimright $json ","]
-    append json "}"
+    append json "\}"
     return $json
 }
 
@@ -271,7 +271,7 @@ proc ::docker::filters { args } {
 #      connection.
 proc ::docker::disconnect { cx {keep 0}} {
     upvar \#0 $cx CX
-    
+
     if { $CX(sock) ne "" } {
         catch {close $CX(sock)}
     }
@@ -712,7 +712,7 @@ proc ::docker::rename { cx id name } {
 #      None.
 proc ::docker::attach { cx id cmd args } {
     upvar \#0 $cx CX
-    
+
     eval [linsert $args 0 Request $cx POST /containers/$id/attach]
     Follow $cx $cmd
 }
@@ -738,7 +738,7 @@ proc ::docker::attach { cx id cmd args } {
 #      None.
 proc ::docker::exec { cx id cmd args } {
     upvar \#0 $cx CX
-    
+
     # Defauts, then capture -xxx and -noxxx options into JSON booleans
     set in "false"; set out "true"; set err "false"; set tty "true"
     if { [GetOpt args -stdi] } { set in "true" };    # -stdin
@@ -750,7 +750,7 @@ proc ::docker::exec { cx id cmd args } {
     if { [GetOpt args -t] } { set tty "true" };      # -tty
     if { [GetOpt args -not] } { set tty "false" }
     if { [GetOpt args -i] } { set in "true"; set out "true"; set err "true" }
-    
+
     # Construct JSON request
     set json "\{ "
     append json "\"AttachStdin\": $in, "
@@ -765,7 +765,7 @@ proc ::docker::exec { cx id cmd args } {
     set jcmd [string trimright $jcmd " ,"]
     append json "\"Cmd\": \[ $jcmd \] "
     append json "\}"
-    
+
     # Now perform JSON request and parse response. This is to CREATE (and not
     # yet execute) and execution context, according to the API manual.
     # https://docs.docker.com/engine/reference/api/docker_remote_api_v1.24/#/exec-create
@@ -779,7 +779,7 @@ proc ::docker::exec { cx id cmd args } {
             array set RES [Read $cx $RSP(meta)]
             GetOpt args -callback -value cb -default ""
             unset RSP;  # Will be reused just below, not entirely cleancode...
-            
+
             # Now start the execution context and capture output or provide
             # callback with output.
             set json "\{ \"Detach\": false \}"
@@ -792,7 +792,7 @@ proc ::docker::exec { cx id cmd args } {
                 set RS(done) 0
                 Follow $cx [list [namespace current]::Collect $r]
                 vwait ${r}(done)
-                
+
                 if { $RS(stderr) ne "" } {
                     set res $RS(stderr)
                 } else {
@@ -855,67 +855,67 @@ proc ::docker::container { cx cmd args } {
             # container create -name /hello -- {<JSON>}
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace containers -op $cmd -json $args \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "update" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace containers -op $cmd -id [lindex $args 0] -json [lrange $args 1 end] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "inspect" {
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace containers -id [lindex $args 0] -op json \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "logs" {
             QueryHeaders args params
             set lines [APICall $cx -rest GET -namespace containers -id [lindex $args 0] -op $cmd -raw-stream \
-                        -- {*}$params]
+                    -- {*}$params]
             # Arrange to clean every line and make sure we return a list of lines.
             return [split [string trim $lines] "\n"]
         }
         "stats" {
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace containers -id [lindex $args 0] -op $cmd -stream [lindex $args 1] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "top" -
         "changes" {
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace containers -id [lindex $args 0] -op $cmd \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "resize" -
         "start" -
         "stop" -
         "restart" -
         "kill" -
-        "rename" - 
+        "rename" -
         "pause" -
         "unpause" -
         "wait" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace containers -id [lindex $args 0] -op $cmd \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "update" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace containers -id [lindex $args 0] -op update -json $args \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "rm" -
         "delete" {
             QueryHeaders args params
             return [APICall $cx -rest DELETE -namespace containers -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "prune" {
             # container prune -filters [docker filters until 1h30m]
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace containers -op prune \
-                        -- {*}$params]
+                    -- {*}$params]
         }
-    }    
+    }
 }
 
 
@@ -942,12 +942,12 @@ proc ::docker::image { cx cmd args } {
     switch -- $cmd {
         "ls" {
             QueryHeaders args params headers
-            return [APICall $cx -rest GET -namespace images -op json -- {*}$params] 
+            return [APICall $cx -rest GET -namespace images -op json -- {*}$params]
         }
         "create" {
             QueryHeaders args params headers
             return [APICall $cx -rest POST -namespace images -op create -headers $headers \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "inspect" {
             return [APICall $cx -rest GET -namespace images -id [lindex $args 0] -op json]
@@ -958,27 +958,27 @@ proc ::docker::image { cx cmd args } {
         "search" {
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace images -op $cmd \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "push" -
         "tag" {
             QueryHeaders args params headers
             return [APICall $cx -rest POST -namespace images -id [lindex $args 0] -op $cmd -headers $headers \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "rm" -
         "delete" {
             QueryHeaders args params
             return [APICall $cx -rest DELETE -namespace images -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "prune" {
             # image prune -filters [docker filters dangling 1]
             QueryHeaders args params headers
             return [APICall $cx -rest POST -namespace images -op prune \
-                        -- {*}$params]
+                    -- {*}$params]
         }
-    }    
+    }
 }
 
 
@@ -1010,26 +1010,26 @@ proc ::docker::service { cx cmd args } {
             # service create -X-Registry-Auth XXX -version 23 -- {"Name": "top",...}
             QueryHeaders args params headers
             return [APICall $cx -rest POST -namespace services -op create -json $args -headers $headers \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "inspect" {
             # service inspect -insertDefaults true -- hopeful_cori
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace services -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "rm" -
         "delete" {
             QueryHeaders args params headers
             return [APICall $cx -rest DELETE -namespace services -id [lindex $args 0] -headers $headers \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "update" {
             QueryHeaders args params headers
             return [APICall $cx -rest POST -namespace services -id [lindex $args 0] -op update -json $args -headers $headers \
-                        -- {*}$params]
+                    -- {*}$params]
         }
-    }    
+    }
 }
 
 
@@ -1058,26 +1058,26 @@ proc ::docker::secret { cx cmd args } {
         "create" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace secrets -op create -json $args \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "inspect" {
             # secret inspect -- my_secret
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace secrets -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "rm" -
         "delete" {
             QueryHeaders args params
             return [APICall $cx -rest DELETE -namespace secrets -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "update" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace secrets -id [lindex $args 0] -op update -json $args \
-                        -- {*}$params]
+                    -- {*}$params]
         }
-    }    
+    }
 }
 
 
@@ -1106,26 +1106,26 @@ proc ::docker::config { cx cmd args } {
         "create" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace configs -op create -json $args \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "inspect" {
             # secret inspect -- my_config
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace configs -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "rm" -
         "delete" {
             QueryHeaders args params
             return [APICall $cx -rest DELETE -namespace configs -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "update" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace configs -id [lindex $args 0] -op update -json $args \
-                        -- {*}$params]
+                    -- {*}$params]
         }
-    }    
+    }
 }
 
 
@@ -1155,20 +1155,20 @@ proc ::docker::node { cx cmd args } {
         "inspect" {
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace nodes -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "rm" -
         "delete" {
             QueryHeaders args params
             return [APICall $cx -rest DELETE -namespace nodes -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "update" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace nodes -id [lindex $args 0] -op update -json $args \
-                        -- {*}$params]
+                    -- {*}$params]
         }
-    }    
+    }
 }
 
 
@@ -1198,26 +1198,26 @@ proc ::docker::network { cx cmd args } {
         "inspect" {
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace networks -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "rm" -
         "delete" {
             QueryHeaders args params
             return [APICall $cx -rest DELETE -namespace networks -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "disconnect" -
         "connect" {
-            QueryHeaders args params            
+            QueryHeaders args params
             return [APICall $cx -rest POST -namespace networks -id [lindex $args 0] -op $cmd \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "prune" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace networks -op prune \
-                        -- {*}$params]
+                    -- {*}$params]
         }
-    }    
+    }
 }
 
 
@@ -1240,14 +1240,14 @@ proc ::docker::task { cx cmd args } {
 
     switch -- [string tolower $cmd] {
         "ls" {
-            return [APICall $cx -rest GET -namespace tasks -- {*}$args]            
+            return [APICall $cx -rest GET -namespace tasks -- {*}$args]
         }
         "inspect" {
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace tasks -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
-    }    
+    }
 }
 
 
@@ -1276,26 +1276,26 @@ proc ::docker::volume { cx cmd args } {
         "create" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace volumes -op create -json $args \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "inspect" {
             # secret inspect -- my_secret
             QueryHeaders args params
             return [APICall $cx -rest GET -namespace volumes -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "rm" -
         "delete" {
             QueryHeaders args params
             return [APICall $cx -rest DELETE -namespace volumes -id [lindex $args 0] \
-                        -- {*}$params]
+                    -- {*}$params]
         }
         "prune" {
             QueryHeaders args params
             return [APICall $cx -rest POST -namespace volumes -op prune \
-                        -- {*}$params]
+                    -- {*}$params]
         }
-    }    
+    }
 }
 
 
@@ -1323,7 +1323,7 @@ proc ::docker::volume { cx cmd args } {
 proc ::docker::URLinit {} {
     variable map
     variable alphanumeric a-zA-Z0-9
-    for {set i 0} {$i <= 256} {incr i} { 
+    for {set i 0} {$i <= 256} {incr i} {
         set c [format %c $i]
         if {![string match \[$alphanumeric\] $c]} {
             set map($c) %[format %.2x $i]
@@ -1441,7 +1441,7 @@ proc ::docker::PullOpts { _argv _opts } {
                     incr i 2
                 }
             } else {
-		break
+                break
             }
         }
         set opts [lrange $argv 0 [expr {$i-1}]]
@@ -1488,7 +1488,7 @@ proc ::docker::GetOpt {_argv name args } {
     } else {
         array set OPTS $args
     }
-    
+
     # Access where the options are stored and possible where to store
     # side-results.
     upvar $_argv argv
@@ -1536,7 +1536,7 @@ proc ::docker::GetOpt {_argv name args } {
 #       None.
 proc ::docker::LogLevel { lvl } {
     variable DOCKER
-    
+
     if { ![string is integer $lvl] } {
         foreach {l str} $DOCKER(verboseTags) {
             if { [string match -nocase $str $lvl] } {
@@ -1594,7 +1594,7 @@ proc ::docker::Dispatch { cx method args } {
 #       None.
 proc ::docker::Identifier { {pfx "" } } {
     variable DOCKER
-    
+
     set unique [incr DOCKER(idGene)]
     ::append unique [expr {[clock clicks -milliseconds] % $DOCKER(idClamp)}]
     return [format "${pfx}%.$DOCKER(idFormat)d" $unique]
@@ -1625,9 +1625,9 @@ proc ::docker::Identifier { {pfx "" } } {
 #      Create subprocesses, or open sockets depending on the URL.
 proc ::docker::Init { cx } {
     variable DOCKER
-    
+
     upvar \#0 $cx CX
-    
+
     set CX(sock) ""
     set sep [string first "://" $CX(url)]
     set scheme [string range $CX(url) 0 [expr {$sep-1}]]
@@ -1635,7 +1635,7 @@ proc ::docker::Init { cx } {
         "unix" {
             # Extract path to domain socket
             set domain [string range $CX(url) [expr {$sep+3}] end]
-            
+
             # First try opening using socat, this will fail gently if
             # we could not find socat or socat actually failed.
             if { $CX(-socat) ne "" } {
@@ -1643,7 +1643,7 @@ proc ::docker::Init { cx } {
                 if { $socat ne "" } {
                     if {[catch {open "|$socat UNIX-CLIENT:$domain -" r+} s]} {
                         log WARN "Cannot open UNIX socket from $domain\
-                                  with $socat: $s"
+                                with $socat: $s"
                     } else {
                         log INFO "Opened UNIX socket at $domain using $socat"
                         set CX(sock) $s
@@ -1652,14 +1652,14 @@ proc ::docker::Init { cx } {
                     log NOTICE "Cannot find binary for socat"
                 }
             }
-            
+
             # Now try nc
             if { $CX(sock) eq "" && $CX(-nc) ne "" } {
                 set nc [auto_execok $CX(-socat)]
                 if { $nc ne "" } {
                     if {[catch {open "|$nc -U $domain" r+} s]} {
                         log WARN "Cannot open UNIX socket from $domain\
-                                  with $nc: $s"
+                                with $nc: $s"
                     } else {
                         log INFO "Opened UNIX socket at $domain using $nc"
                         set CX(sock) $s
@@ -1668,7 +1668,7 @@ proc ::docker::Init { cx } {
                     log NOTICE "Cannot find binary for nc"
                 }
             }
-            
+
             # If we still haven't got a socket, then send back an
             # error as we won't be able to continue...
             if { $CX(sock) eq "" } {
@@ -1697,7 +1697,7 @@ proc ::docker::Init { cx } {
             set CX(sock) [::tls::socket -certfile $CX(-cert) -keyfile $CX(-key) $host $port]
         }
     }
-    
+
     return $CX(sock)
 }
 
@@ -1716,7 +1716,7 @@ proc ::docker::Init { cx } {
 #      None.
 proc ::docker::Host { cx } {
     upvar \#0 $cx CX
-    
+
     # Figure out the Host we are talking to, this is important as new docker
     # daemons are picky about the presence of the header.
     set sep [string first "://" $CX(url)]
@@ -1726,7 +1726,7 @@ proc ::docker::Host { cx } {
         set location [string range $CX(url) [expr {$sep+3}] end]
         foreach { host port } [split [string trimright $location /] ":"] break
     }
-    
+
     return $host
 }
 
@@ -1749,7 +1749,7 @@ proc ::docker::Host { cx } {
 #      Writes well-formed HTTP request on channel.
 proc ::docker::Request { cx op path args } {
     upvar \#0 $cx CX
-    
+
     fconfigure $CX(sock) -buffering full
     set req ""
     if { [llength $args] > 0 } {
@@ -1788,7 +1788,7 @@ proc ::docker::Request { cx op path args } {
 #      Writes well-formed HTTP request on channel.
 proc ::docker::RequestJSON { cx op path json hdrs args } {
     upvar \#0 $cx CX
-    
+
     fconfigure $CX(sock) -buffering full
     set req ""
     if { [llength $args] > 0 } {
@@ -1831,7 +1831,7 @@ proc ::docker::RequestJSON { cx op path json hdrs args } {
 #      Read resonse line by line.
 proc ::docker::Response { cx } {
     upvar \#0 $cx CX
-    
+
     set response [gets $CX(sock)]
     array set RSP {}
     if { [regexp {HTTP/(\d+.\d)\s+(\d+)\s+(.*)} $response \
@@ -1846,7 +1846,7 @@ proc ::docker::Response { cx } {
             append meta "[string trim $k]=[string trim $v] "
             lappend RSP(meta) [string trim $k] [string trim $v]
         }
-        log DEBUG "Response $RSP(code) : [string trim $meta]"
+        log TRACE "Response $RSP(code) : [string trim $meta]"
     } else {
         return -code error "Cannot understand response: $response"
     }
@@ -1889,14 +1889,14 @@ proc ::docker::String2Hex {string} {
 #      Read (and block) from socket to server
 proc ::docker::Data { cx len {stream 0} } {
     upvar \#0 $cx CX
-    
+
     fconfigure $CX(sock) -translation binary
     if { $stream } {
         set dta [Stream $cx]
     } else {
         set dta [read $CX(sock) $len]
     }
-    log DEBUG "Read [string length $dta] bytes from $CX(sock), starting with [string range $dta 0 40]"
+    log TRACE "Read [string length $dta] bytes from $CX(sock), starting with [string range $dta 0 40]"
     return $dta
 }
 
@@ -1936,15 +1936,15 @@ proc ::docker::Chunks { cx { stream 0 } { cmd {} } } {
                 if { [llength $cmd] } {
                     if { [catch {eval [linsert $cmd end $chunk]} err] } {
                         log WARN "Cannot push back data: $err"
-                    }        
+                    }
                 } elseif {$stream} {
                     append dta ${chunk}\n
-                } else {                
+                } else {
                     append dta $chunk
                 }
             }
         }
-        
+
         # Skip footer
         while 1 {
             set l [gets $CX(sock)]
@@ -1952,7 +1952,7 @@ proc ::docker::Chunks { cx { stream 0 } { cmd {} } } {
                 break
             }
         }
-        
+
         return $dta
     }
 }
@@ -1972,7 +1972,7 @@ proc ::docker::Chunks { cx { stream 0 } { cmd {} } } {
 #      Read header and length of chunk out of header.
 proc ::docker::Chunk { cx {stream 0} } {
     upvar \#0 $cx CX
-    
+
     set dta ""
     if { [gets $CX(sock) hdr] >= 0 } {
         # Split header to access the hex size
@@ -1983,7 +1983,7 @@ proc ::docker::Chunk { cx {stream 0} } {
             fconfigure $CX(sock) -translation auto
             gets $CX(sock)
         }
-        
+
     }
     return $dta
 }
@@ -2005,12 +2005,12 @@ proc ::docker::Chunk { cx {stream 0} } {
 #      None.
 proc ::docker::Collect { r type payload } {
     upvar \#0 $r RS
-    
+
     if { $type eq "error" } {
         set RS(done) 1
         return
     }
-    
+
     if { [info exists RS($type)] } {
         append RS($type) [string trimright $payload]\n
     }
@@ -2035,7 +2035,7 @@ proc ::docker::Collect { r type payload } {
 #      Read one message from the channel.
 proc ::docker::Stream { cx {cmd {}} } {
     upvar \#0 $cx CX
-    
+
     set hdr [read $CX(sock) 8]
     if { [string length $hdr] == 8 } {
         binary scan $hdr cucucucuIu type a b c size
@@ -2100,10 +2100,16 @@ proc ::docker::Consume { cx response cmd } {
                         fileevent $CX(sock) readable [list [namespace current]::Chunks $cx 0 $cmd]
                     }
                 }
+            } elseif { [info exists META(Transfer-Encoding)] } {
+                switch -glob -- $META(Transfer-Encoding) {
+                    "chunked" {
+                        fileevent $CX(sock) readable [list [namespace current]::Chunks $cx 0 $cmd]
+                    }
+                }
             }
+
         }
     }
-    
 }
 
 # ::docker::JSONify -- JSON parsed callback
@@ -2149,16 +2155,16 @@ proc ::docker::JSONify { cmd dta } {
 proc ::docker::Read { cx meta {stream 0} { json 1 } } {
     set dta ""
     array set META $meta
-    
+
     if { [info exists META(Content-Length)] } {
         set dta [string trim [Data $cx $META(Content-Length) $stream]]
     }
-    
+
     if { [info exists META(Transfer-Encoding)] \
                 && $META(Transfer-Encoding) eq "chunked" } {
         set dta [string trim [Chunks $cx $stream]]
     }
-    
+
     if { $dta ne "" && $json } {
         return [::docker::json::parse $dta]
     } else {
@@ -2186,7 +2192,7 @@ proc ::docker::Read { cx meta {stream 0} { json 1 } } {
 #
 #      Once double-dash (or equivalent) led option extraction has been
 #      performed, all remaining arguments will be passed to the server as query
-#      arguments, meaning that this should also be an even-long list. 
+#      arguments, meaning that this should also be an even-long list.
 #
 # Arguments:
 #      cx       Identifier of connection, as returned by connect
@@ -2255,7 +2261,7 @@ proc ::docker::APICall { cx args } {
 
 # ::docker::Get -- Do a GET operation
 #
-#      Perform a get API operation on a container 
+#      Perform a get API operation on a container
 #
 # Arguments:
 #      cx       Identifier of connection, as returned by connect
@@ -2287,7 +2293,7 @@ proc ::docker::Get { cx id op args } {
 
 # ::docker::Do -- Do a POST operation
 #
-#      Perform a post API operation on a container 
+#      Perform a post API operation on a container
 #
 # Arguments:
 #      cx       Identifier of connection, as returned by connect
@@ -2368,3 +2374,5 @@ proc ::docker::QueryHeaders { args_ { qry_ "" } { hdrs_ "" }} {
 
 
 package provide docker $::docker::version
+
+
