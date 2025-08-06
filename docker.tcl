@@ -1655,7 +1655,7 @@ proc ::docker::Init { cx } {
 
             # Now try nc
             if { $CX(sock) eq "" && $CX(-nc) ne "" } {
-                set nc [auto_execok $CX(-socat)]
+                set nc [auto_execok $CX(-nc)]
                 if { $nc ne "" } {
                     if {[catch {open "|$nc -U $domain" r+} s]} {
                         log WARN "Cannot open UNIX socket from $domain\
